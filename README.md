@@ -1,0 +1,2 @@
+# simpedemic
+Simulator for epidemics
