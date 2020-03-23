@@ -1,5 +1,6 @@
 # Simpidemic
-Simulator for epidemics
+
+## Simulator for epidemics
 
 This is an experimental simulator written in JavaScript.
 
