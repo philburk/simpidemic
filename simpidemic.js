@@ -65,10 +65,15 @@ class ChartMaker {
         this.ctx = canvas.getContext("2d");
         this.width = canvas.width;
         this.height = canvas.height;
+        this.dataMax = 0;
     }
 
     clear() {
         this.ctx.clearRect(0, 0, this.width, this.height)
+    }
+
+    setDataMax(dataMax) {
+        this.dataMax = dataMax;
     }
 
     drawSingle(data) {
@@ -77,9 +82,9 @@ class ChartMaker {
         this.ctx.lineWidth = "5";
         this.ctx.strokeStyle = "red"; // Green path
         this.ctx.moveTo(0, this.height);
+        let localMax = this.dataMax > 0 ? this.dataMax : Math.max.apply(null, data);
+        var yScaler = this.height / localMax;
         var i;
-        let dataMax = Math.max.apply(null, data)
-        var yScaler = this.height / dataMax;
         for (i = 0; i < data.length; i++) {
           var x = i * this.width / data.length;
           var y = this.height - (yScaler * data[i]);
@@ -162,34 +167,43 @@ class EpidemicSimulator {
         this.virus = new VirusModel();
         this.simUI = new ESimUI(this, topDiv);
         this.chart = new ChartMaker(this.simUI.getCanvas());
-        this.contactsPerDay = 1.0;
+        this.contactsPerDay = 3.0;
+        this.initialPopulation = 10000;
+        this.chart.setDataMax(this.initialPopulation);
     }
 
     setContactsPerDay(contactsPerDay) {
         this.contactsPerDay = contactsPerDay;
     }
 
+    calculateDitherOffset() {
+        return Math.random() + Math.random() - 1.0;
+    }
     simulate() {
-        var compartment = new CompartmentModel(1000, 1);
+        var compartment = new CompartmentModel(this.initialPopulation, 1);
         console.log("============ population = " + compartment.population);
         var i = 0;
         var cases = [];
         compartment.infected = 1;
         var infectionDuration = 14;
         var recoveryRate = 1.0 / infectionDuration;
-        for (i = 0; i < 20; i++) {
+        for (i = 0; i < 40; i++) {
             var beta = this.contactsPerDay * this.virus.getTransmissionProbability();
-            var deltaS = beta
+            var newlyInfected = beta
                     * compartment.infected
                     * compartment.succeptible
                     / compartment.getPopulation();
-            var iDeltaS = Math.floor(deltaS);
+            newlyInfected += this.calculateDitherOffset();
+            newlyInfected = Math.max(0, Math.round(newlyInfected));
+            newlyInfected = Math.min(compartment.succeptible, newlyInfected);
 
-            var deltaR = recoveryRate * compartment.infected;
-            var iDeltaR = Math.floor(deltaR);
-            compartment.succeptible -= iDeltaS;
-            compartment.recovered += iDeltaR;
-            compartment.infected += iDeltaS - iDeltaR;
+            var newlyRecovered = recoveryRate * compartment.infected;
+            //newlyRecovered += this.calculateDitherOffset();
+            newlyRecovered = Math.max(0, Math.round(newlyRecovered));
+
+            compartment.succeptible -= newlyInfected;
+            compartment.recovered += newlyRecovered;
+            compartment.infected += newlyInfected - newlyRecovered;
 
             console.log("succeptible = " + compartment.succeptible
                 + ", infected = " + compartment.infected
