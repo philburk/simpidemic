@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<body>
+
+<h1>Epidemic Simulator</h1>
+<p>Written in JavaScript</p>
+
+<script src="simpidemic.js">
+</script>
+
+<div id="simpidemic">
+</div>
+
+<script>
+var topDiv = document.getElementById("simpidemic");
+var episim = new EpidemicSimulator(topDiv);
+episim.simulate();
+</script>
+
+</body>
+</html>
