@@ -11,7 +11,7 @@
 // VirusEditor
 // CompartmentEditor
 // SimulationEngine
-// EpiSimulator - top level application class
+// EpidemicSimulator - top level application class
 
 
 var addAttribute = function(element, name, value) {
@@ -26,11 +26,11 @@ var addAttribute = function(element, name, value) {
 //   <p>Value: <span id="demo"></span></p>
 // </div>
 class RangeSlider {
-    constructor(min, max, value) {
+    constructor(name, min, max, value) {
         this.div = document.createElement('div');
 
         var paragraph = document.createElement('p');
-        var textNode = document.createTextNode("Current: ");
+        var textNode = document.createTextNode(name + ": ");
         paragraph.appendChild(textNode);
         this.span = document.createElement('span');
         paragraph.appendChild(this.span);
@@ -48,7 +48,7 @@ class RangeSlider {
     }
 
     handleEvent(event) {
-        this.span.innerHTML = this.valueListener.handleValue(this.slider.value);
+        this.span.innerHTML = this.valueListener(this.slider.value);
     }
 
     setValueListener(valueListener) {
@@ -78,9 +78,11 @@ class ChartMaker {
         this.ctx.strokeStyle = "red"; // Green path
         this.ctx.moveTo(0, this.height);
         var i;
+        let dataMax = Math.max.apply(null, data)
+        var yScaler = this.height / dataMax;
         for (i = 0; i < data.length; i++) {
           var x = i * this.width / data.length;
-          var y = this.height - data[i];
+          var y = this.height - (yScaler * data[i]);
           this.ctx.lineTo(x, y);
         }
         this.ctx.stroke();
@@ -89,14 +91,27 @@ class ChartMaker {
 
 class VirusModel {
     constructor() {
-        this.R0 = 1.05;
+        this.transmissionProbability = 0.5;
     }
 
-    getR0(day) {
-        return this.R0;
+    getTransmissionProbability(day) {
+        return this.transmissionProbability;
     }
-    setR0(r0) {
-        this.R0 = r0;
+
+    gstTransmissionProbability(transmissionProbability) {
+        this.transmissionProbability = transmissionProbability;
+    }
+}
+
+class CompartmentModel {
+    constructor(population, infected) {
+        this.succeptible = population - infected;
+        this.infected = infected;
+        this.recovered = 0;
+    }
+
+    getPopulation() {
+        return this.succeptible + this.infected + this.recovered;
     }
 }
 
@@ -106,17 +121,19 @@ class ESimUI {
         this.topDiv = topDiv;
         console.log(this.topDiv);
         this.appendParagraph("Disclaimer: IANAE");
-        this.sliderR0 = new RangeSlider(0, 100, 10);
-        this.sliderR0.setValueListener(this);
-        this.topDiv.appendChild(this.sliderR0.getElement());
-        this.canvas = this.appendCanvas(600, 300, "border:2px solid #d310d3");
+        this.sliderContacts = new RangeSlider("contactsPerDay", 0, 100, 10);
+        this.sliderContacts.setValueListener(this.handleContacts.bind(this));
+        this.topDiv.appendChild(this.sliderContacts.getElement());
+        this.canvas = this.appendCanvas(600, 300, "border:2px solid #d3d3d3");
     }
-    handleValue(value) {
-        var r0 =  value * 0.1;
-        this.episim.setR0(r0);
+
+    handleContacts(value) {
+        var contactsPerDay =  value * 0.1;
+        this.episim.setContactsPerDay(contactsPerDay);
         this.episim.simulate();
-        return r0;
+        return contactsPerDay;
     }
+
     appendCanvas(width, height, style) {
         var canvas = document.createElement('canvas');
         addAttribute(canvas, "width", width);
@@ -145,19 +162,41 @@ class EpidemicSimulator {
         this.virus = new VirusModel();
         this.simUI = new ESimUI(this, topDiv);
         this.chart = new ChartMaker(this.simUI.getCanvas());
+        this.contactsPerDay = 1.0;
     }
 
-    setR0(r0) {
-        this.virus.setR0(r0);
+    setContactsPerDay(contactsPerDay) {
+        this.contactsPerDay = contactsPerDay;
     }
 
     simulate() {
+        var compartment = new CompartmentModel(1000, 1);
+        console.log("============ population = " + compartment.population);
         var i = 0;
         var cases = [];
-        var n = 1;
-        for (i = 0; i < 10; i++) {
-            n += n * this.virus.getR0(0);
-            cases.push(n);
+        compartment.infected = 1;
+        var infectionDuration = 14;
+        var recoveryRate = 1.0 / infectionDuration;
+        for (i = 0; i < 20; i++) {
+            var beta = this.contactsPerDay * this.virus.getTransmissionProbability();
+            var deltaS = beta
+                    * compartment.infected
+                    * compartment.succeptible
+                    / compartment.getPopulation();
+            var iDeltaS = Math.floor(deltaS);
+
+            var deltaR = recoveryRate * compartment.infected;
+            var iDeltaR = Math.floor(deltaR);
+            compartment.succeptible -= iDeltaS;
+            compartment.recovered += iDeltaR;
+            compartment.infected += iDeltaS - iDeltaR;
+
+            console.log("succeptible = " + compartment.succeptible
+                + ", infected = " + compartment.infected
+                + ", recovered = " + compartment.recovered
+                + ", population = " + compartment.getPopulation()
+            );
+            cases.push(compartment.infected);
         }
         this.chart.drawSingle(cases);
     }
