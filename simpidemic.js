@@ -21,38 +21,93 @@ var addAttribute = function(element, name, value) {
     return att;
 }
 
+class ParameterModel {
+    constructor(name, min, max, value) {
+        this.name = name;
+        this.min = min;
+        this.max = max;
+        this.value = value;
+        this.listeners = [];
+    }
+
+    getValueString() {
+        return "" + this.value.toFixed(2);
+    }
+
+    getValue() {
+        return this.value;
+    }
+
+    setValue(value) {
+        this.value = value;
+        this.fireListeners();
+    }
+
+    fireListeners() {
+        for (var i = 0, length = this.listeners.length; i < length; i++) {
+            let listener = this.listeners[i];
+            listener.onChange(this);
+        }
+    }
+
+    addListener(listener) {
+        this.listeners.push(listener);
+    }
+}
+
 // <div class="slidecontainer">
 //   <input type="range" min="1" max="100" value="50" class="slider" id="myRange">
 //   <p>Value: <span id="demo"></span></p>
 // </div>
 class RangeSlider {
-    constructor(name, min, max, value) {
-        this.div = document.createElement('div');
+    constructor(parameterModel) {
+        this.parameterModel = parameterModel;
 
+        // Construct HTML elements
+        this.div = document.createElement('div');
         var paragraph = document.createElement('p');
-        var textNode = document.createTextNode(name + ": ");
+        paragraph.style = "float: left";
+        var textNode = document.createTextNode(parameterModel.name + ": ");
         paragraph.appendChild(textNode);
         this.span = document.createElement('span');
         paragraph.appendChild(this.span);
         this.div.appendChild(paragraph);
 
         var slider = document.createElement('input');
+        this.slider = slider;
         slider.type = "range";
-        slider.min = min;
-        slider.max = max;
-        slider.value = value;
+        slider.min = 0;
+        slider.max = 1000;
+        slider.value = this.valueToPosition(parameterModel.getValue());
         slider.class = "slider";
         slider.addEventListener("input", this);
-        this.slider = slider;
         this.div.appendChild(slider);
+        var clearDiv = document.createElement('div');
+        clearDiv.style = "clear: left";
+        this.div.appendChild(clearDiv);
+
+        this.updateValueText();
+    }
+
+    positionToValue(position) {
+        let range = this.parameterModel.max - this.parameterModel.min;
+        return this.parameterModel.min
+                + (range * (position / this.slider.max));
+    }
+
+    valueToPosition(value) {
+        let range = this.slider.max - this.slider.min;
+        return range * (value / this.parameterModel.max);
     }
 
     handleEvent(event) {
-        this.span.innerHTML = this.valueListener(this.slider.value);
+        let value = this.positionToValue(this.slider.value);
+        this.parameterModel.setValue(value);
+        this.updateValueText();
     }
 
-    setValueListener(valueListener) {
-        this.valueListener = valueListener;
+    updateValueText() {
+        this.span.innerHTML = this.parameterModel.getValueString();
     }
 
     getElement() {
@@ -103,7 +158,7 @@ class VirusModel {
         return this.transmissionProbability;
     }
 
-    gstTransmissionProbability(transmissionProbability) {
+    setTransmissionProbability(transmissionProbability) {
         this.transmissionProbability = transmissionProbability;
     }
 }
@@ -120,30 +175,51 @@ class CompartmentModel {
     }
 }
 
+class SimulationResults {
+    constructor() {
+        this.infectedArray = [];
+    }
+}
+
 class ESimUI {
-    constructor(episim, topDiv) {
-        this.episim = episim;
+    constructor(epidemic, topDiv) {
+        this.epidemic = epidemic;
         this.topDiv = topDiv;
         console.log(this.topDiv);
         this.appendParagraph("Disclaimer: IANAE");
-        this.sliderContacts = new RangeSlider("contactsPerDay", 0, 100, 10);
-        this.sliderContacts.setValueListener(this.handleContacts.bind(this));
-        this.topDiv.appendChild(this.sliderContacts.getElement());
+        this.addParamemeterEditors();
         this.canvas = this.appendCanvas(600, 300, "border:2px solid #d3d3d3");
+        this.chart = new ChartMaker(this.canvas);
+        this.chart.setDataMax(this.epidemic.getInitialPopulation());
     }
 
-    handleContacts(value) {
-        var contactsPerDay =  value * 0.1;
-        this.episim.setContactsPerDay(contactsPerDay);
-        this.episim.simulate();
-        return contactsPerDay;
+    addParamemeterEditors() {
+        var models = this.epidemic.getParameterModels();
+        var i = 0, length = models.length;
+        for (; i < length;) {
+            let model = models[i];
+            model.addListener(this);
+            var slider = new RangeSlider(model);
+            this.topDiv.appendChild(slider.getElement());
+            i++;
+        }
+    }
+
+    onChange(model) {
+        this.refresh();
+    }
+
+    refresh() {
+        var results = this.epidemic.simulate();
+        this.chart.drawSingle(results.infectedArray);
     }
 
     appendCanvas(width, height, style) {
         var canvas = document.createElement('canvas');
-        addAttribute(canvas, "width", width);
-        addAttribute(canvas, "height", height);
-        addAttribute(canvas, "style", style);
+        canvas.width = width;
+        //addAttribute(canvas, "width", width);
+        canvas.height = height;
+        canvas.style = style;
         this.topDiv.appendChild(canvas);
         return canvas;
     }
@@ -161,15 +237,21 @@ class ESimUI {
     }
 }
 
-class EpidemicSimulator {
+class EpidemicModel {
 
-    constructor(topDiv, canvas) {
+    constructor() {
         this.virus = new VirusModel();
-        this.simUI = new ESimUI(this, topDiv);
-        this.chart = new ChartMaker(this.simUI.getCanvas());
-        this.contactsPerDay = 3.0;
+        this.contactsPerDayModel = new ParameterModel("contactsPerDay", 0.5, 10.0, 3.0);
+        this.infectionDurationModel = new ParameterModel("infectionDuration", 2.0, 20.0, 14.0);
         this.initialPopulation = 10000;
-        this.chart.setDataMax(this.initialPopulation);
+    }
+
+    getParameterModels() {
+        return [this.contactsPerDayModel, this.infectionDurationModel];
+    }
+
+    getInitialPopulation() {
+        return this.initialPopulation;
     }
 
     setContactsPerDay(contactsPerDay) {
@@ -179,21 +261,23 @@ class EpidemicSimulator {
     calculateDitherOffset() {
         return Math.random() + Math.random() - 1.0;
     }
+
     simulate() {
         var compartment = new CompartmentModel(this.initialPopulation, 1);
-        console.log("============ population = " + compartment.population);
+        var results = new SimulationResults();
+        console.log("============ population = " + compartment.getPopulation());
         var i = 0;
         var cases = [];
         compartment.infected = 1;
-        var infectionDuration = 14;
-        var recoveryRate = 1.0 / infectionDuration;
+        var recoveryRate = 1.0 / this.infectionDurationModel.getValue();
+        let contactsPerDay = this.contactsPerDayModel.getValue();
         for (i = 0; i < 40; i++) {
-            var beta = this.contactsPerDay * this.virus.getTransmissionProbability();
+            var beta = contactsPerDay * this.virus.getTransmissionProbability();
             var newlyInfected = beta
                     * compartment.infected
                     * compartment.succeptible
                     / compartment.getPopulation();
-            newlyInfected += this.calculateDitherOffset();
+            //newlyInfected += this.calculateDitherOffset();
             newlyInfected = Math.max(0, Math.round(newlyInfected));
             newlyInfected = Math.min(compartment.succeptible, newlyInfected);
 
@@ -205,13 +289,22 @@ class EpidemicSimulator {
             compartment.recovered += newlyRecovered;
             compartment.infected += newlyInfected - newlyRecovered;
 
-            console.log("succeptible = " + compartment.succeptible
-                + ", infected = " + compartment.infected
-                + ", recovered = " + compartment.recovered
-                + ", population = " + compartment.getPopulation()
-            );
-            cases.push(compartment.infected);
+            // console.log("day = " + i
+            //     + ", succeptible = " + compartment.succeptible
+            //     + ", infected = " + compartment.infected
+            //     + ", recovered = " + compartment.recovered
+            //     + ", population = " + compartment.getPopulation()
+            //);
+            results.infectedArray.push(compartment.infected);
         }
-        this.chart.drawSingle(cases);
+        return results;
+    }
+}
+
+class EpidemicSimulator {
+    constructor(topDiv) {
+        this.epidemic = new EpidemicModel();
+        this.simUI = new ESimUI(this.epidemic, topDiv);
+        this.simUI.refresh();
     }
 }
