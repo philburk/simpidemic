@@ -115,28 +115,41 @@ class RangeSlider {
     }
 }
 
+class ChartTrace {
+    constructor(name, data) {
+        this.name = name;
+        this.data = data;
+        this.style = "blue";
+    }
+}
+
 class ChartMaker {
     constructor(canvas) {
         this.ctx = canvas.getContext("2d");
         this.width = canvas.width;
         this.height = canvas.height;
         this.dataMax = 0;
+        this.traces = [];
     }
 
     clear() {
         this.ctx.clearRect(0, 0, this.width, this.height)
     }
 
+    addTrace(chartTrace) {
+        this.traces.push(chartTrace);
+    }
+
     setDataMax(dataMax) {
         this.dataMax = dataMax;
     }
 
-    drawSingle(data) {
-        this.clear();
+    drawTrace(chartTrace) {
         this.ctx.beginPath();
-        this.ctx.lineWidth = "5";
-        this.ctx.strokeStyle = "red"; // Green path
+        this.ctx.lineWidth = "3";
+        this.ctx.strokeStyle = chartTrace.style; // Green path
         this.ctx.moveTo(0, this.height);
+        let data = chartTrace.data;
         let localMax = this.dataMax > 0 ? this.dataMax : Math.max.apply(null, data);
         var yScaler = this.height / localMax;
         var i;
@@ -147,19 +160,28 @@ class ChartMaker {
         }
         this.ctx.stroke();
     }
+
+    draw() {
+        this.clear();
+        for (let trace of this.traces) {
+            this.drawTrace(trace);
+        }
+    }
 }
 
 class VirusModel {
     constructor() {
-        this.transmissionProbability = 0.5;
+        this.transmissionProbabilities =
+            [0.0, 0.0, 0.1, 0.2, 0.5, 0.9, 0.7,   0.2, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0];
     }
 
     getTransmissionProbability(day) {
-        return this.transmissionProbability;
+        return (day >= this.transmissionProbabilities.length)
+                ? 0.0 : this.transmissionProbabilities[day];
     }
 
-    setTransmissionProbability(transmissionProbability) {
-        this.transmissionProbability = transmissionProbability;
+    getInfectionDuration() {
+        return this.transmissionProbabilities.length;
     }
 }
 
@@ -178,6 +200,8 @@ class CompartmentModel {
 class SimulationResults {
     constructor() {
         this.infectedArray = [];
+        this.recoveredArray = [];
+        this.deadArray = [];
     }
 }
 
@@ -188,8 +212,17 @@ class ESimUI {
         console.log(this.topDiv);
         this.appendParagraph("Disclaimer: IANAE");
         this.addParamemeterEditors();
-        this.canvas = this.appendCanvas(600, 300, "border:2px solid #d3d3d3");
+        this.canvas = this.appendCanvas(1000, 300, "border:2px solid #d3d3d3");
         this.chart = new ChartMaker(this.canvas);
+        this.infectedTrace = new ChartTrace("infected", []);
+        this.chart.addTrace(this.infectedTrace);
+        this.infectedTrace.style = "red";
+        this.recoveredTrace = new ChartTrace("recovered", []);
+        this.chart.addTrace(this.recoveredTrace);
+        this.recoveredTrace.style = "green";
+        this.deadTrace = new ChartTrace("dead", []);
+        this.chart.addTrace(this.deadTrace);
+        this.deadTrace.style = "black";
         this.chart.setDataMax(this.epidemic.getInitialPopulation());
     }
 
@@ -211,7 +244,10 @@ class ESimUI {
 
     refresh() {
         var results = this.epidemic.simulate();
-        this.chart.drawSingle(results.infectedArray);
+        this.infectedTrace.data = results.infectedArray;
+        this.recoveredTrace.data = results.recoveredArray;
+        this.deadTrace.data = results.deadArray;
+        this.chart.draw();
     }
 
     appendCanvas(width, height, style) {
@@ -241,13 +277,16 @@ class EpidemicModel {
 
     constructor() {
         this.virus = new VirusModel();
+        this.parameters = [];
         this.contactsPerDayModel = new ParameterModel("contactsPerDay", 0.5, 10.0, 3.0);
-        this.infectionDurationModel = new ParameterModel("infectionDuration", 2.0, 20.0, 14.0);
+        this.parameters.push(this.contactsPerDayModel);
+        this.infectionMortalityModel = new ParameterModel("infectionMortality", 0.0, 100.0, 5.0);
+        this.parameters.push(this.infectionMortalityModel);
         this.initialPopulation = 10000;
     }
 
     getParameterModels() {
-        return [this.contactsPerDayModel, this.infectionDurationModel];
+        return this.parameters;
     }
 
     getInitialPopulation() {
@@ -263,39 +302,61 @@ class EpidemicModel {
     }
 
     simulate() {
+        const numDays = 100;
         var compartment = new CompartmentModel(this.initialPopulation, 1);
         var results = new SimulationResults();
         console.log("============ population = " + compartment.getPopulation());
         var i = 0;
         var cases = [];
         compartment.infected = 1;
-        var recoveryRate = 1.0 / this.infectionDurationModel.getValue();
+        let totalDead = 0;
+        let infectionDuration = this.virus.getInfectionDuration();
         let contactsPerDay = this.contactsPerDayModel.getValue();
-        for (i = 0; i < 40; i++) {
-            var beta = contactsPerDay * this.virus.getTransmissionProbability();
-            var newlyInfected = beta
-                    * compartment.infected
+        let infectionMortality = this.infectionMortalityModel.getValue();
+        let infectedFIFO = [];
+        for(var i = 0; i < infectionDuration; i++) {
+            infectedFIFO.push(0);
+        }
+        infectedFIFO.unshift(compartment.infected);
+        for (i = 0; i < numDays; i++) {
+            let population = compartment.getPopulation();
+            // Convolve the daily transmission probability with
+            // the number of infected cases for that day.
+            let dailyTransmissionRate = 0;
+            for (let day = 0; day < infectionDuration; day++) {
+                dailyTransmissionRate += this.virus.getTransmissionProbability(day)
+                        * infectedFIFO[day];
+            }
+            let newlyInfected =
+                    contactsPerDay
+                    * dailyTransmissionRate
                     * compartment.succeptible
                     / compartment.getPopulation();
             //newlyInfected += this.calculateDitherOffset();
             newlyInfected = Math.max(0, Math.round(newlyInfected));
             newlyInfected = Math.min(compartment.succeptible, newlyInfected);
 
-            var newlyRecovered = recoveryRate * compartment.infected;
-            //newlyRecovered += this.calculateDitherOffset();
-            newlyRecovered = Math.max(0, Math.round(newlyRecovered));
+            let oldInfected = infectedFIFO.pop();
+            let newlyDead = Math.round(oldInfected * infectionMortality / 100);
+            let newlyRecovered = oldInfected - newlyDead;
 
             compartment.succeptible -= newlyInfected;
             compartment.recovered += newlyRecovered;
-            compartment.infected += newlyInfected - newlyRecovered;
+            compartment.infected += newlyInfected - oldInfected;
+            totalDead += newlyDead;
+            infectedFIFO.unshift(newlyInfected);
 
             // console.log("day = " + i
             //     + ", succeptible = " + compartment.succeptible
             //     + ", infected = " + compartment.infected
             //     + ", recovered = " + compartment.recovered
+            //     + ", newlyRecovered = " + newlyRecovered
+            //     + ", newlyDead = " + newlyDead
             //     + ", population = " + compartment.getPopulation()
-            //);
+            // );
             results.infectedArray.push(compartment.infected);
+            results.recoveredArray.push(compartment.recovered);
+            results.deadArray.push(totalDead);
         }
         return results;
     }
