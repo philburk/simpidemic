@@ -4,22 +4,28 @@
  * Apache Open Source
  */
 
+// Table of Classes
 // ChartMaker - displays multiple data sets, axes
-// VirusModel - R0(day), mortality(age)
+// VirusModel - transmission probability, mortality(age)
 // CompartmentModel - population, demographics,
-// MitigationModel - social distancing, vaccination, hospital capacity
-// VirusEditor
-// CompartmentEditor
-// SimulationEngine
+// EpidemicModel - top level model and simulator
 // EpidemicSimulator - top level application class
 
+// TODO prevent jumping by using fixed width numeric fields
+// TODO log taper
+// TODO cursor, show daily values
+// TODO align slider and text
+// TODO Chart axes, scale
+// TODO Add Action,
+// TODO Action List/Editor, X-delete
+// TODO Model mortality(age)
 
-var addAttribute = function(element, name, value) {
-    var att = document.createAttribute(name);
-    att.value = value;
-    element.setAttributeNode(att);
-    return att;
-}
+// var addAttribute = function(element, name, value) {
+//     var att = document.createAttribute(name);
+//     att.value = value;
+//     element.setAttributeNode(att);
+//     return att;
+// }
 
 class ParameterModel {
     constructor(name, min, max, value) {
@@ -28,10 +34,18 @@ class ParameterModel {
         this.max = max;
         this.value = value;
         this.listeners = [];
+
+        let significantDigits = 4;
+        this.numericWidth = significantDigits;
+        let logMax = Math.log10(max);
+        this.numericFractionalDigits = Math.max(0, significantDigits - Math.floor(logMax + 1));
+        if (this.numericFractionalDigits > 0) {
+            this.numericWidth++; // make room for the decimal point
+        }
     }
 
     getValueString() {
-        return "" + this.value.toFixed(2);
+        return this.value.toFixed(this.numericFractionalDigits).padStart(this.numericWidth, '0');
     }
 
     getValue() {
@@ -64,27 +78,17 @@ class RangeSlider {
         this.parameterModel = parameterModel;
 
         // Construct HTML elements
-        this.div = document.createElement('div');
-        var paragraph = document.createElement('p');
-        paragraph.style = "float: left";
-        var textNode = document.createTextNode(parameterModel.name + ": ");
-        paragraph.appendChild(textNode);
-        this.span = document.createElement('span');
-        paragraph.appendChild(this.span);
-        this.div.appendChild(paragraph);
+        this.numericElement = document.createElement('p');
+        this.numericElement.style.fontFamily = "monospace";
 
         var slider = document.createElement('input');
         this.slider = slider;
         slider.type = "range";
         slider.min = 0;
-        slider.max = 1000;
+        slider.max = 10000;
         slider.value = this.valueToPosition(parameterModel.getValue());
         slider.class = "slider";
         slider.addEventListener("input", this);
-        this.div.appendChild(slider);
-        var clearDiv = document.createElement('div');
-        clearDiv.style = "clear: left";
-        this.div.appendChild(clearDiv);
 
         this.updateValueText();
     }
@@ -107,11 +111,15 @@ class RangeSlider {
     }
 
     updateValueText() {
-        this.span.innerHTML = this.parameterModel.getValueString();
+        this.numericElement.innerHTML = this.parameterModel.getValueString();
     }
 
     getElement() {
-        return this.div;
+        return this.slider;
+    }
+
+    getNumericElement() {
+        return this.numericElement;
     }
 }
 
@@ -173,11 +181,29 @@ class VirusModel {
     constructor() {
         this.transmissionProbabilities =
             [0.0, 0.0, 0.1, 0.2, 0.5, 0.9, 0.7,   0.2, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0];
+
+        this.parameters = [];
+        this.infectionMortalityTreatedModel = new ParameterModel("mortalityTreated", 0.0, 100.0, 5.0);
+        this.parameters.push(this.infectionMortalityTreatedModel);
+        this.infectionMortalityUntreatedModel = new ParameterModel("mortalityUntreated", 0.0, 100.0, 5.0);
+        this.parameters.push(this.infectionMortalityUntreatedModel);
+    }
+
+    getParameterModels() {
+        return this.parameters;
     }
 
     getTransmissionProbability(day) {
         return (day >= this.transmissionProbabilities.length)
                 ? 0.0 : this.transmissionProbabilities[day];
+    }
+
+    getInfectionMortalityTreated() {
+        return this.infectionMortalityTreatedModel.getValue();
+    }
+
+    getInfectionMortalityUntreated() {
+        return this.infectionMortalityUntreatedModel.getValue();
     }
 
     getInfectionDuration() {
@@ -212,6 +238,10 @@ class ESimUI {
         console.log(this.topDiv);
         this.appendParagraph("Disclaimer: IANAE");
         this.addParamemeterEditors();
+        this.addChart();
+    }
+
+    addChart() {
         this.canvas = this.appendCanvas(1000, 300, "border:2px solid #d3d3d3");
         this.chart = new ChartMaker(this.canvas);
         this.infectedTrace = new ChartTrace("infected", []);
@@ -226,17 +256,53 @@ class ESimUI {
         this.chart.setDataMax(this.epidemic.getInitialPopulation());
     }
 
-    addParamemeterEditors() {
-        var models = this.epidemic.getParameterModels();
+    createTableHeader(name) {
+        let th = document.createElement("th");
+        let text = document.createTextNode(name);
+        th.appendChild(text);
+        return th;
+    }
+
+    createParameterEditor(models) {
+        let table = document.createElement("TABLE");
         var i = 0, length = models.length;
         for (; i < length;) {
             let model = models[i];
             model.addListener(this);
             var slider = new RangeSlider(model);
-            this.topDiv.appendChild(slider.getElement());
+
+            let row = table.insertRow();
+            let cell = row.insertCell();
+            cell.appendChild(document.createTextNode(model.name + " = "));
+            cell.align = "right";
+
+            cell = row.insertCell();
+            cell.appendChild(slider.getNumericElement());
+
+            cell = row.insertCell();
+            cell.appendChild(slider.getElement());
             i++;
         }
+        return table;
     }
+
+    addParamemeterEditors() {
+        // make Table for editors
+        let table = document.createElement("TABLE");
+        let tHead = table.createTHead();
+        let row = tHead.insertRow();
+        row.appendChild(this.createTableHeader("Virus"));
+        row.appendChild(this.createTableHeader("General"));
+        row = table.insertRow();
+        let cell = row.insertCell();
+        let models = this.epidemic.getVirusParameterModels();
+        cell.appendChild(this.createParameterEditor(models));
+        cell = row.insertCell();
+        models = this.epidemic.getGeneralParameterModels();
+        cell.appendChild(this.createParameterEditor(models));
+        this.topDiv.appendChild(table);
+    }
+
 
     onChange(model) {
         this.refresh();
@@ -253,7 +319,6 @@ class ESimUI {
     appendCanvas(width, height, style) {
         var canvas = document.createElement('canvas');
         canvas.width = width;
-        //addAttribute(canvas, "width", width);
         canvas.height = height;
         canvas.style = style;
         this.topDiv.appendChild(canvas);
@@ -276,17 +341,23 @@ class ESimUI {
 class EpidemicModel {
 
     constructor() {
+        this.initialPopulation = 10000;
         this.virus = new VirusModel();
         this.parameters = [];
+
         this.contactsPerDayModel = new ParameterModel("contactsPerDay", 0.5, 10.0, 3.0);
         this.parameters.push(this.contactsPerDayModel);
-        this.infectionMortalityModel = new ParameterModel("infectionMortality", 0.0, 100.0, 5.0);
-        this.parameters.push(this.infectionMortalityModel);
-        this.initialPopulation = 10000;
+
+        this.treatmentCapacityPer100KModel = new ParameterModel("treatmentCapacityPer100K", 0.0, 2000.0, 25.0);
+        this.parameters.push(this.treatmentCapacityPer100KModel);
     }
 
-    getParameterModels() {
+    getGeneralParameterModels() {
         return this.parameters;
+    }
+
+    getVirusParameterModels() {
+        return this.virus.getParameterModels();
     }
 
     getInitialPopulation() {
@@ -312,7 +383,10 @@ class EpidemicModel {
         let totalDead = 0;
         let infectionDuration = this.virus.getInfectionDuration();
         let contactsPerDay = this.contactsPerDayModel.getValue();
-        let infectionMortality = this.infectionMortalityModel.getValue();
+        let infectionMortalityTreated = this.virus.getInfectionMortalityTreated();
+        let infectionMortalityUntreated = this.virus.getInfectionMortalityUntreated();
+        let treatmentCapacityPer100K = this.treatmentCapacityPer100KModel.getValue();
+        let treatmentCapacity = treatmentCapacityPer100K * this.initialPopulation / 100000;
         let infectedFIFO = [];
         for(var i = 0; i < infectionDuration; i++) {
             infectedFIFO.push(0);
@@ -337,7 +411,10 @@ class EpidemicModel {
             newlyInfected = Math.min(compartment.succeptible, newlyInfected);
 
             let oldInfected = infectedFIFO.pop();
-            let newlyDead = Math.round(oldInfected * infectionMortality / 100);
+            let oldInfectedTreated = Math.min(oldInfected, treatmentCapacity);
+            let oldInfectedUntreated = oldInfected - oldInfectedTreated;
+            let newlyDead = Math.round(oldInfectedTreated * infectionMortalityTreated / 100);
+            newlyDead += Math.round(oldInfectedUntreated * infectionMortalityUntreated / 100);
             let newlyRecovered = oldInfected - newlyDead;
 
             compartment.succeptible -= newlyInfected;
