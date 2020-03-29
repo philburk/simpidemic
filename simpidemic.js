@@ -11,14 +11,15 @@
 // EpidemicModel - top level model and simulator
 // EpidemicSimulator - top level application class
 
-// TODO prevent jumping by using fixed width numeric fields
+
 // TODO log taper
-// TODO cursor, show daily values
-// TODO align slider and text
 // TODO Chart axes, scale
 // TODO Add Action,
 // TODO Action List/Editor, X-delete
 // TODO Model mortality(age)
+// TODO model testCapacityperDay
+// TODO Calculate confirmed cases vs hidden infected
+// TODO
 
 // var addAttribute = function(element, name, value) {
 //     var att = document.createAttribute(name);
@@ -26,6 +27,8 @@
 //     element.setAttributeNode(att);
 //     return att;
 // }
+
+const kInitialPopulation = 100000;
 
 class ParameterModel {
     constructor(name, min, max, value) {
@@ -133,15 +136,29 @@ class ChartTrace {
 
 class ChartMaker {
     constructor(canvas) {
+        this.canvas = canvas;
         this.ctx = canvas.getContext("2d");
         this.width = canvas.width;
         this.height = canvas.height;
         this.dataMax = 0;
         this.traces = [];
+        this.listeners = [];
+        this.cursor = -1;
+        canvas.addEventListener('click', function(event) {
+            let x = (event.pageX - this.canvas.offsetLeft) / this.xScaler;
+            let y = (event.pageY - this.canvas.offsetTop) / this.yScaler;
+            this.listeners.forEach(function(listener) {
+                listener.onClickXY(x, y);
+            });
+        }.bind(this));
     }
 
     clear() {
         this.ctx.clearRect(0, 0, this.width, this.height)
+    }
+
+    setCursor(value) {
+        this.cursor = value;
     }
 
     addTrace(chartTrace) {
@@ -152,21 +169,40 @@ class ChartMaker {
         this.dataMax = dataMax;
     }
 
+    addClickListener(listener) {
+        this.listeners.push(listener);
+    }
+
     drawTrace(chartTrace) {
         this.ctx.beginPath();
-        this.ctx.lineWidth = "3";
+        this.ctx.lineWidth = "2";
         this.ctx.strokeStyle = chartTrace.style; // Green path
         this.ctx.moveTo(0, this.height);
         let data = chartTrace.data;
         let localMax = this.dataMax > 0 ? this.dataMax : Math.max.apply(null, data);
+        let xScaler = this.width / data.length;
+        this.xScaler = xScaler;
         var yScaler = this.height / localMax;
+        this.yScaler = yScaler;
         var i;
         for (i = 0; i < data.length; i++) {
-          var x = i * this.width / data.length;
+          var x = i * xScaler;
           var y = this.height - (yScaler * data[i]);
           this.ctx.lineTo(x, y);
+          this.ctx.arc(x, y, 2, 0, 2 * Math.PI);
+          this.ctx.moveTo(x, y);
         }
         this.ctx.stroke();
+        // Draw cursor if enabled.
+        if (this.cursor >= 0) {
+            let x = this.cursor * xScaler;
+            this.ctx.beginPath();
+            this.ctx.lineWidth = "2";
+            this.ctx.strokeStyle = "black";
+            this.ctx.moveTo(x, this.height);
+            this.ctx.lineTo(x, 0);
+            this.ctx.stroke();
+        }
     }
 
     draw() {
@@ -187,6 +223,8 @@ class VirusModel {
         this.parameters.push(this.infectionMortalityTreatedModel);
         this.infectionMortalityUntreatedModel = new ParameterModel("mortalityUntreated", 0.0, 100.0, 5.0);
         this.parameters.push(this.infectionMortalityUntreatedModel);
+        this.immunityLossModel = new ParameterModel("immunityLoss", 0.0, 0.1, 0.01);
+        this.parameters.push(this.immunityLossModel);
     }
 
     getParameterModels() {
@@ -204,6 +242,10 @@ class VirusModel {
 
     getInfectionMortalityUntreated() {
         return this.infectionMortalityUntreatedModel.getValue();
+    }
+
+    getImmunityLoss() {
+        return this.immunityLossModel.getValue();
     }
 
     getInfectionDuration() {
@@ -225,8 +267,10 @@ class CompartmentModel {
 
 class SimulationResults {
     constructor() {
+        this.numDays = 0;
         this.infectedArray = [];
         this.recoveredArray = [];
+        this.succeptibleArray = [];
         this.deadArray = [];
     }
 }
@@ -236,9 +280,11 @@ class ESimUI {
         this.epidemic = epidemic;
         this.topDiv = topDiv;
         console.log(this.topDiv);
-        this.appendParagraph("Disclaimer: IANAE");
+        this.appendParagraph("Disclaimer: In Progress - This has NOT been verified by an epidemiologist.");
         this.addParamemeterEditors();
+        this.dailyReportElement = this.appendParagraph("Day - click on chart to see details for a given day.");
         this.addChart();
+        this.cursorDay = -1;
     }
 
     addChart() {
@@ -254,6 +300,22 @@ class ESimUI {
         this.chart.addTrace(this.deadTrace);
         this.deadTrace.style = "black";
         this.chart.setDataMax(this.epidemic.getInitialPopulation());
+        this.chart.addClickListener(this);
+    }
+
+    reportDay(day) {
+        let text = "Day " + day;
+        text += ", infected = " + this.lastResults.infectedArray[day];
+        text += ", recovered = " + this.lastResults.recoveredArray[day];
+        text += ", dead = " + this.lastResults.deadArray[day];
+        this.dailyReportElement.innerHTML = text;
+    }
+
+    onClickXY(x, y) {
+        this.cursorDay = Math.floor(x);
+        this.reportDay(this.cursorDay);
+        this.chart.setCursor(this.cursorDay);
+        this.chart.draw();
     }
 
     createTableHeader(name) {
@@ -310,10 +372,20 @@ class ESimUI {
 
     refresh() {
         var results = this.epidemic.simulate();
+        this.lastResults = results;
         this.infectedTrace.data = results.infectedArray;
         this.recoveredTrace.data = results.recoveredArray;
         this.deadTrace.data = results.deadArray;
         this.chart.draw();
+
+        if (this.cursorDay >= 0) {
+            // Avoid cursor beyond end of data.
+            if (this.cursorDay >= results.numDays) {
+                this.cursorDay = results.numDays - 1;
+                this.chart.setCursor(this.cursorDay);
+            }
+            this.reportDay(this.cursorDay);
+        }
     }
 
     appendCanvas(width, height, style) {
@@ -341,15 +413,18 @@ class ESimUI {
 class EpidemicModel {
 
     constructor() {
-        this.initialPopulation = 10000;
+        this.initialPopulation = kInitialPopulation;
         this.virus = new VirusModel();
         this.parameters = [];
 
-        this.contactsPerDayModel = new ParameterModel("contactsPerDay", 0.5, 10.0, 3.0);
+        this.contactsPerDayModel = new ParameterModel("contactsPerDay", 0.2, 4.0, 2.0);
         this.parameters.push(this.contactsPerDayModel);
 
         this.treatmentCapacityPer100KModel = new ParameterModel("treatmentCapacityPer100K", 0.0, 2000.0, 25.0);
         this.parameters.push(this.treatmentCapacityPer100KModel);
+
+        this.numDaysModel = new ParameterModel("numDays", 40, 600.0, 100.0);
+        this.parameters.push(this.numDaysModel);
     }
 
     getGeneralParameterModels() {
@@ -369,11 +444,10 @@ class EpidemicModel {
     }
 
     calculateDitherOffset() {
-        return Math.random() + Math.random() - 1.0;
+        return 0.5 * (Math.random() + Math.random() - 1.0);
     }
 
     simulate() {
-        const numDays = 100;
         var compartment = new CompartmentModel(this.initialPopulation, 1);
         var results = new SimulationResults();
         console.log("============ population = " + compartment.getPopulation());
@@ -381,18 +455,24 @@ class EpidemicModel {
         var cases = [];
         compartment.infected = 1;
         let totalDead = 0;
-        let infectionDuration = this.virus.getInfectionDuration();
-        let contactsPerDay = this.contactsPerDayModel.getValue();
-        let infectionMortalityTreated = this.virus.getInfectionMortalityTreated();
-        let infectionMortalityUntreated = this.virus.getInfectionMortalityUntreated();
-        let treatmentCapacityPer100K = this.treatmentCapacityPer100KModel.getValue();
-        let treatmentCapacity = treatmentCapacityPer100K * this.initialPopulation / 100000;
+        // Get initial parameters from models.
+        const numDays = Math.floor(this.numDaysModel.getValue());
+        const infectionDuration = this.virus.getInfectionDuration();
+        const contactsPerDay = this.contactsPerDayModel.getValue();
+        const infectionMortalityTreated = this.virus.getInfectionMortalityTreated();
+        const infectionMortalityUntreated = this.virus.getInfectionMortalityUntreated();
+        const treatmentCapacityPer100K = this.treatmentCapacityPer100KModel.getValue();
+        const treatmentCapacity = treatmentCapacityPer100K * this.initialPopulation / 100000;
+        const immunityLoss = this.virus.getImmunityLoss();
+
         let infectedFIFO = [];
         for(var i = 0; i < infectionDuration; i++) {
             infectedFIFO.push(0);
         }
+        // most recent number of infected is at infectedFIFO[0]
         infectedFIFO.unshift(compartment.infected);
         for (i = 0; i < numDays; i++) {
+            // Population changes due to deaths.
             let population = compartment.getPopulation();
             // Convolve the daily transmission probability with
             // the number of infected cases for that day.
@@ -405,11 +485,13 @@ class EpidemicModel {
                     contactsPerDay
                     * dailyTransmissionRate
                     * compartment.succeptible
-                    / compartment.getPopulation();
+                    / population;
             //newlyInfected += this.calculateDitherOffset();
             newlyInfected = Math.max(0, Math.round(newlyInfected));
             newlyInfected = Math.min(compartment.succeptible, newlyInfected);
 
+            // TODO treatment model needs to account for multiple days of treatment
+            // and triage.
             let oldInfected = infectedFIFO.pop();
             let oldInfectedTreated = Math.min(oldInfected, treatmentCapacity);
             let oldInfectedUntreated = oldInfected - oldInfectedTreated;
@@ -417,8 +499,11 @@ class EpidemicModel {
             newlyDead += Math.round(oldInfectedUntreated * infectionMortalityUntreated / 100);
             let newlyRecovered = oldInfected - newlyDead;
 
-            compartment.succeptible -= newlyInfected;
-            compartment.recovered += newlyRecovered;
+            // Some recovered people will lose immunity.
+            let newlySucceptible = Math.round(immunityLoss * compartment.recovered);
+
+            compartment.succeptible += newlySucceptible - newlyInfected;
+            compartment.recovered += newlyRecovered - newlySucceptible;
             compartment.infected += newlyInfected - oldInfected;
             totalDead += newlyDead;
             infectedFIFO.unshift(newlyInfected);
@@ -432,9 +517,11 @@ class EpidemicModel {
             //     + ", population = " + compartment.getPopulation()
             // );
             results.infectedArray.push(compartment.infected);
+            results.succeptibleArray.push(compartment.succeptible);
             results.recoveredArray.push(compartment.recovered);
             results.deadArray.push(totalDead);
         }
+        results.numDays = numDays;
         return results;
     }
 }
