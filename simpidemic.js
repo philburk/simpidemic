@@ -30,12 +30,16 @@
 
 const kInitialPopulation = 100000;
 
-class ParameterModel {
-    constructor(name, min, max, value) {
+const ParameterType = Object.freeze({
+    "SINGLE":1,
+    "ARRAY":2
+});
+
+class ParameterModelBase {
+    constructor(name, min, max) {
         this.name = name;
         this.min = min;
         this.max = max;
-        this.value = value;
         this.listeners = [];
 
         let significantDigits = 4;
@@ -47,17 +51,8 @@ class ParameterModel {
         }
     }
 
-    getValueString() {
-        return this.value.toFixed(this.numericFractionalDigits).padStart(this.numericWidth, '0');
-    }
-
-    getValue() {
-        return this.value;
-    }
-
-    setValue(value) {
-        this.value = value;
-        this.fireListeners();
+    valueToString(value) {
+        return value.toFixed(this.numericFractionalDigits).padStart(this.numericWidth, '0');
     }
 
     fireListeners() {
@@ -69,6 +64,54 @@ class ParameterModel {
 
     addListener(listener) {
         this.listeners.push(listener);
+    }
+}
+
+class ParameterModel extends ParameterModelBase {
+    constructor(name, min, max, value) {
+        super(name, min, max);
+        this.value = value;
+    }
+
+    getType() {
+        return ParameterType.SINGLE;
+    }
+
+    getValueString() {
+        return this.valueToString(this.value);
+    }
+
+    getValue() {
+        return this.value;
+    }
+
+    setValue(value) {
+        this.value = value;
+        this.fireListeners();
+    }
+}
+
+class ParameterArrayModel extends ParameterModelBase {
+    constructor(name, min, max, dataArray) {
+        super(name, min, max);
+        this.dataArray = dataArray;
+    }
+
+    getType() {
+        return ParameterType.ARRAY;
+    }
+
+    getValue(index) {
+        return this.dataArray[index];
+    }
+
+    setValue(index, value) {
+        this.dataArray[index] = value;
+        this.fireListeners();
+    }
+
+    size() {
+        return this.dataArray.length;
     }
 }
 
@@ -126,6 +169,112 @@ class RangeSlider {
     }
 }
 
+class CanvasBasedWidget {
+    constructor(width, height) {
+        var canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        this.canvas = canvas;
+
+        this.ctx = canvas.getContext("2d");
+        this.width = canvas.width;
+        this.height = canvas.height;
+        this.listeners = [];
+    }
+
+    getElement() {
+        return this.canvas;
+    }
+
+    clear() {
+        this.ctx.clearRect(0, 0, this.width, this.height)
+    }
+
+}
+
+class ArrayEditor extends CanvasBasedWidget {
+    constructor(parameterArrayModel, width, height) {
+        super(width, height);
+        this.parameterArrayModel = parameterArrayModel;
+        //this.canvas.style.width = "100%";
+        this.draw();
+        this.dragging = false;
+
+        this.canvas.addEventListener('mousedown', function(event) {
+            this.dragging = true;
+            let x = event.layerX;
+            let y = event.layerY;
+            this.onClickXY(x, y);
+        }.bind(this));
+
+        this.canvas.addEventListener('mousemove', function(event) {
+            if (this.dragging) {
+                let x = event.layerX;
+                let y = event.layerY;
+                this.onClickXY(x, y);
+            }
+        }.bind(this));
+
+        this.canvas.addEventListener('mouseup', function(event) {
+            if (this.dragging) {
+                let x = event.layerX;
+                let y = event.layerY;
+                this.onClickXY(x, y);
+                this.dragging = false;
+            }
+        }.bind(this));
+    }
+
+    onClickXY(x, y) {
+        let index = this.xToIndex(x);
+        let value = this.yToValue(y);
+        this.parameterArrayModel.setValue(index, value);
+        this.draw();
+    }
+
+    xToIndex(x) {
+        let numBars = this.parameterArrayModel.size();
+        let barWidth = this.canvas.width / numBars;
+        return Math.floor(x / barWidth);
+    }
+
+    // y = h *(1 - (v - min)/r
+    // y/h = 1.0 - (v - min)/r
+    // (y/h - 1) * r = -(v - min)
+    // (y/h - 1) * r = min - v
+    // v = min - ((y/h - 1) * r)
+    yToValue(y) {
+        let min = this.parameterArrayModel.min;
+        let range = this.parameterArrayModel.max - min;
+        return min - (((y / this.height) - 1) * range);
+    }
+
+    valueToY(value) {
+        let range = this.parameterArrayModel.max - this.parameterArrayModel.min;
+        let valueOffset = value - this.parameterArrayModel.min;
+        return this.height * (1.0 - (valueOffset / range));
+    }
+
+    draw() {
+        this.clear();
+        let numBars = this.parameterArrayModel.size();
+        //this.width = this.canvas.parentNode.offsetWidth;
+        let barWidth = this.canvas.width / numBars;
+        let dataMin = this.parameterArrayModel.min;
+        let x = 0;
+        for (var i = 0; i < numBars; i++) {
+            let value = this.parameterArrayModel.getValue(i);
+            let y = this.valueToY(value);
+            let h = this.height - y;
+            this.ctx.fillRect(x, y, barWidth, h);
+            this.ctx.beginPath();
+            this.ctx.rect(x, 0, barWidth, this.height);
+            this.ctx.stroke();
+            x += barWidth;
+        }
+    }
+}
+
 class ChartTrace {
     constructor(name, data) {
         this.name = name;
@@ -134,23 +283,26 @@ class ChartTrace {
     }
 }
 
-class ChartMaker {
-    constructor(canvas) {
-        this.canvas = canvas;
-        this.ctx = canvas.getContext("2d");
-        this.width = canvas.width;
-        this.height = canvas.height;
+class ChartMaker extends CanvasBasedWidget {
+    constructor(width, height, style) {
+        super(width, height);
+        this.canvas.style = style;
+
         this.dataMax = 0;
         this.traces = [];
-        this.listeners = [];
         this.cursor = -1;
-        canvas.addEventListener('click', function(event) {
+
+        this.canvas.addEventListener('click', function(event) {
             let x = (event.pageX - this.canvas.offsetLeft) / this.xScaler;
             let y = (event.pageY - this.canvas.offsetTop) / this.yScaler;
             this.listeners.forEach(function(listener) {
                 listener.onClickXY(x, y);
             });
         }.bind(this));
+    }
+
+    getElement() {
+        return this.canvas;
     }
 
     clear() {
@@ -184,8 +336,7 @@ class ChartMaker {
         this.xScaler = xScaler;
         var yScaler = this.height / localMax;
         this.yScaler = yScaler;
-        var i;
-        for (i = 0; i < data.length; i++) {
+        for (var i = 0; i < data.length; i++) {
           var x = i * xScaler;
           var y = this.height - (yScaler * data[i]);
           this.ctx.lineTo(x, y);
@@ -215,10 +366,13 @@ class ChartMaker {
 
 class VirusModel {
     constructor() {
-        this.transmissionProbabilities =
-            [0.0, 0.0, 0.1, 0.2, 0.5, 0.9, 0.7,   0.2, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0];
-
         this.parameters = [];
+        let transmissionProbabilities =
+            [0.0, 0.0, 0.1, 0.2, 0.5, 0.9, 0.7,  0.2, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0];
+        this.transmissionProbabilitiesModel = new ParameterArrayModel("transmissionProbabilities",
+                0.0, 1.0, transmissionProbabilities);
+        this.parameters.push(this.transmissionProbabilitiesModel);
+
         this.infectionMortalityTreatedModel = new ParameterModel("mortalityTreated", 0.0, 100.0, 5.0);
         this.parameters.push(this.infectionMortalityTreatedModel);
         this.infectionMortalityUntreatedModel = new ParameterModel("mortalityUntreated", 0.0, 100.0, 5.0);
@@ -232,8 +386,7 @@ class VirusModel {
     }
 
     getTransmissionProbability(day) {
-        return (day >= this.transmissionProbabilities.length)
-                ? 0.0 : this.transmissionProbabilities[day];
+        return this.transmissionProbabilitiesModel.getValue(day);
     }
 
     getInfectionMortalityTreated() {
@@ -249,7 +402,7 @@ class VirusModel {
     }
 
     getInfectionDuration() {
-        return this.transmissionProbabilities.length;
+        return this.transmissionProbabilitiesModel.size();
     }
 }
 
@@ -281,15 +434,15 @@ class ESimUI {
         this.topDiv = topDiv;
         console.log(this.topDiv);
         this.appendParagraph("Disclaimer: In Progress - This has NOT been verified by an epidemiologist.");
-        this.addParamemeterEditors();
+        this.addParameterEditors();
         this.dailyReportElement = this.appendParagraph("Day - click on chart to see details for a given day.");
         this.addChart();
         this.cursorDay = -1;
     }
 
     addChart() {
-        this.canvas = this.appendCanvas(1000, 300, "border:2px solid #d3d3d3");
-        this.chart = new ChartMaker(this.canvas);
+        this.chart = new ChartMaker(1000, 300, "border:2px solid #d3d3d3");
+        this.topDiv.appendChild(this.chart.getElement());
         this.infectedTrace = new ChartTrace("infected", []);
         this.chart.addTrace(this.infectedTrace);
         this.infectedTrace.style = "red";
@@ -325,30 +478,50 @@ class ESimUI {
         return th;
     }
 
+    addSingleEditor(model, table) {
+        model.addListener(this);
+        var slider = new RangeSlider(model);
+        let row = table.insertRow();
+        let cell = row.insertCell();
+        cell.appendChild(document.createTextNode(model.name + " = "));
+        cell.align = "right";
+
+        cell = row.insertCell();
+        cell.appendChild(slider.getNumericElement());
+
+        cell = row.insertCell();
+        cell.appendChild(slider.getElement());
+    }
+
+    addArrayEditor(model, table) {
+        model.addListener(this);
+        var editor = new ArrayEditor(model, 300, 100);
+        let row = table.insertRow();
+        let cell = row.insertCell();
+        cell.colSpan = 3;
+        cell.appendChild(editor.getElement());
+    }
+
     createParameterEditor(models) {
         let table = document.createElement("TABLE");
         var i = 0, length = models.length;
-        for (; i < length;) {
+        for (; i < length; i++) {
             let model = models[i];
-            model.addListener(this);
-            var slider = new RangeSlider(model);
-
-            let row = table.insertRow();
-            let cell = row.insertCell();
-            cell.appendChild(document.createTextNode(model.name + " = "));
-            cell.align = "right";
-
-            cell = row.insertCell();
-            cell.appendChild(slider.getNumericElement());
-
-            cell = row.insertCell();
-            cell.appendChild(slider.getElement());
-            i++;
+            switch(model.getType()) {
+                case ParameterType.SINGLE:
+                    this.addSingleEditor(model, table);
+                    break;
+                case ParameterType.ARRAY:
+                    this.addArrayEditor(model, table);
+                    break;
+                default:
+            }
         }
         return table;
     }
 
-    addParamemeterEditors() {
+
+    addParameterEditors() {
         // make Table for editors
         let table = document.createElement("TABLE");
         let tHead = table.createTHead();
@@ -388,15 +561,6 @@ class ESimUI {
         }
     }
 
-    appendCanvas(width, height, style) {
-        var canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        canvas.style = style;
-        this.topDiv.appendChild(canvas);
-        return canvas;
-    }
-
     appendParagraph(text) {
         var paragraph = document.createElement('p');
         var textNode = document.createTextNode(text);
@@ -420,7 +584,7 @@ class EpidemicModel {
         this.contactsPerDayModel = new ParameterModel("contactsPerDay", 0.2, 4.0, 2.0);
         this.parameters.push(this.contactsPerDayModel);
 
-        this.treatmentCapacityPer100KModel = new ParameterModel("treatmentCapacityPer100K", 0.0, 2000.0, 25.0);
+        this.treatmentCapacityPer100KModel = new ParameterModel("treatmentCapacityPer100K", 0.0, 3000.0, 25.0);
         this.parameters.push(this.treatmentCapacityPer100KModel);
 
         this.numDaysModel = new ParameterModel("numDays", 40, 600.0, 100.0);
