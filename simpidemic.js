@@ -33,8 +33,9 @@
 const kInitialPopulation = 100000;
 
 const ParameterType = Object.freeze({
-    "SINGLE":1,
-    "ARRAY":2
+    "FLOAT":1,
+    "INTEGER":2,
+    "ARRAY":3
 });
 
 class ParameterModelBase {
@@ -54,7 +55,7 @@ class ParameterModelBase {
     }
 
     valueToString(value) {
-        return value.toFixed(this.numericFractionalDigits).padStart(this.numericWidth, '0');
+        return value.toFixed(this.numericFractionalDigits);
     }
 
     fireListeners() {
@@ -69,14 +70,14 @@ class ParameterModelBase {
     }
 }
 
-class ParameterModel extends ParameterModelBase {
+class ParameterFloatModel extends ParameterModelBase {
     constructor(name, min, max, value) {
         super(name, min, max);
         this.value = value;
     }
 
     getType() {
-        return ParameterType.SINGLE;
+        return ParameterType.FLOAT;
     }
 
     getValueString() {
@@ -89,6 +90,26 @@ class ParameterModel extends ParameterModelBase {
 
     setValue(value) {
         this.value = value;
+        this.fireListeners();
+    }
+}
+
+class ParameterIntegerModel extends ParameterFloatModel {
+    constructor(name, min, max, value) {
+        super(name, min, max);
+        this.value = Math.round(value);
+    }
+
+    valueToString(value) {
+        return value.toFixed(0);
+    }
+
+    getType() {
+        return ParameterType.INTEGER;
+    }
+
+    setValue(value) {
+        this.value = Math.round(value);
         this.fireListeners();
     }
 }
@@ -366,6 +387,10 @@ class ChartMaker extends CanvasBasedWidget {
     }
 }
 
+// ================================================================
+// ============= Epidemic Specific Code ===========================
+// ================================================================
+
 class VirusModel {
     constructor() {
         this.parameters = [];
@@ -375,18 +400,20 @@ class VirusModel {
                 0.0, 1.0, transmissionProbabilities);
         this.parameters.push(this.transmissionProbabilitiesModel);
 
-        this.infectionMortalityTreatedModel = new ParameterModel("mortalityTreated", 0.0, 100.0, 2.0);
+        this.infectionMortalityTreatedModel = new ParameterFloatModel("mortalityTreated", 0.0, 100.0, 2.0);
         this.parameters.push(this.infectionMortalityTreatedModel);
-        this.infectionMortalityUntreatedModel = new ParameterModel("mortalityUntreated", 0.0, 100.0, 10.0);
+
+        this.infectionMortalityUntreatedModel = new ParameterFloatModel("mortalityUntreated", 0.0, 100.0, 10.0);
         this.parameters.push(this.infectionMortalityUntreatedModel);
-        this.dayTreatmentBeginsModel = new ParameterModel("dayTreatmentBegins",
-                0.0, transmissionProbabilities.length, 7.0);
+
+        this.dayTreatmentBeginsModel = new ParameterIntegerModel("dayTreatmentBegins",
+                0, transmissionProbabilities.length, 7);
         this.parameters.push(this.dayTreatmentBeginsModel);
-        this.treatmentDurationModel = new ParameterModel("treatmentDuration", 0.0, 40.0, 14.0);
+
+        this.treatmentDurationModel = new ParameterIntegerModel("treatmentDuration", 0, 40, 14);
         this.parameters.push(this.treatmentDurationModel);
-        this.infectionMortalityUntreatedModel = new ParameterModel("mortalityUntreated", 0.0, 100.0, 10.0);
-        this.parameters.push(this.infectionMortalityUntreatedModel);
-        this.immunityLossModel = new ParameterModel("immunityLoss", 0.0, 0.1, 0.01);
+
+        this.immunityLossModel = new ParameterFloatModel("immunityLoss", 0.0, 0.1, 0.01);
         this.parameters.push(this.immunityLossModel);
     }
 
@@ -427,11 +454,17 @@ class CompartmentModel {
     constructor(population, infected) {
         this.succeptible = population - infected;
         this.infected = infected;
+        this.inTreatment = 0; // may be infected but under infection control
         this.recovered = 0;
     }
 
+    getInfected() {
+        return this.infected;
+    }
+
     getPopulation() {
-        return this.succeptible + this.infected + this.recovered;
+        return this.succeptible + this.infected
+                + this.inTreatment + this.recovered;
     }
 }
 
@@ -442,6 +475,7 @@ class SimulationResults {
         this.recoveredArray = [];
         this.succeptibleArray = [];
         this.deadArray = [];
+        this.inTreatmentArray = [];
     }
 }
 
@@ -469,6 +503,10 @@ class ESimUI {
         this.deadTrace = new ChartTrace("dead", []);
         this.chart.addTrace(this.deadTrace);
         this.deadTrace.style = "black";
+        this.inTreatmentTrace = new ChartTrace("inTreatment", []);
+        this.chart.addTrace(this.inTreatmentTrace);
+        this.inTreatmentTrace.style = "blue";
+
         this.chart.setDataMax(this.epidemic.getInitialPopulation());
         this.chart.addClickListener(this);
     }
@@ -477,6 +515,7 @@ class ESimUI {
         let text = "Day " + day;
         text += ", infected = " + this.lastResults.infectedArray[day];
         text += ", recovered = " + this.lastResults.recoveredArray[day];
+        text += ", inTreatment = " + this.lastResults.inTreatmentArray[day];
         text += ", dead = " + this.lastResults.deadArray[day];
         this.dailyReportElement.innerHTML = text;
     }
@@ -540,7 +579,8 @@ class ESimUI {
         for (; i < length; i++) {
             let model = models[i];
             switch(model.getType()) {
-                case ParameterType.SINGLE:
+                case ParameterType.FLOAT:
+                case ParameterType.INTEGER:
                     this.addSingleEditor(model, table);
                     break;
                 case ParameterType.ARRAY:
@@ -581,6 +621,7 @@ class ESimUI {
         this.infectedTrace.data = results.infectedArray;
         this.recoveredTrace.data = results.recoveredArray;
         this.deadTrace.data = results.deadArray;
+        this.inTreatmentTrace.data = results.inTreatmentArray;
         this.chart.draw();
 
         if (this.cursorDay >= 0) {
@@ -613,13 +654,13 @@ class EpidemicModel {
         this.virus = new VirusModel();
         this.parameters = [];
 
-        this.contactsPerDayModel = new ParameterModel("contactsPerDay", 0.2, 4.0, 2.0);
+        this.contactsPerDayModel = new ParameterFloatModel("contactsPerDay", 0.2, 4.0, 2.0);
         this.parameters.push(this.contactsPerDayModel);
 
-        this.treatmentCapacityPer100KModel = new ParameterModel("treatmentCapacityPer100K", 0.0, 10000.0, 25.0);
+        this.treatmentCapacityPer100KModel = new ParameterIntegerModel("treatmentCapacityPer100K", 0, 10000, 25);
         this.parameters.push(this.treatmentCapacityPer100KModel);
 
-        this.numDaysModel = new ParameterModel("numDays", 40, 600.0, 100.0);
+        this.numDaysModel = new ParameterIntegerModel("numDays", 40, 600, 100);
         this.parameters.push(this.numDaysModel);
     }
 
@@ -645,14 +686,11 @@ class EpidemicModel {
 
     simulate() {
         var compartment = new CompartmentModel(this.initialPopulation, 1);
-        var results = new SimulationResults();
         console.log("============ population = " + compartment.getPopulation());
-        var i = 0;
-        var cases = [];
-        compartment.infected = 1;
+        var results = new SimulationResults();
         let totalDead = 0;
         // Get initial parameters from models.
-        const numDays = Math.floor(this.numDaysModel.getValue());
+        const numDays = this.numDaysModel.getValue();
         const infectionDuration = this.virus.getInfectionDuration();
         const contactsPerDay = this.contactsPerDayModel.getValue();
         const infectionMortalityTreated = this.virus.getInfectionMortalityTreated();
@@ -661,7 +699,6 @@ class EpidemicModel {
         const treatmentDuration = this.virus.getTreatmentDuration();
         const treatmentCapacityPer100K = this.treatmentCapacityPer100KModel.getValue();
         let treatmentCapacity = Math.round(treatmentCapacityPer100K * this.initialPopulation / 100000);
-        let treatmentInUse = 0;
         const immunityLoss = this.virus.getImmunityLoss();
 
         let infectedFIFO = [];
@@ -673,69 +710,75 @@ class EpidemicModel {
             treatmentFIFO.push(0);
         }
         // most recent number of infected is at infectedFIFO[0]
-        infectedFIFO.unshift(compartment.infected);
+        infectedFIFO.unshift(compartment.getInfected());
         treatmentFIFO.unshift(0);
-        for (i = 0; i < numDays; i++) {
+        for (var i = 0; i < numDays; i++) {
             // Population changes due to deaths.
-            let population = compartment.getPopulation();
+            const population = compartment.getPopulation();
+            const endingInfection = infectedFIFO.pop();
+            const endingTreatment = treatmentFIFO.pop();
+
+            // Change in infections ========================
             // Convolve the daily transmission probability with
             // the number of infected cases for that day.
             let dailyTransmissionRate = 0;
-            for (let day = 0; day < infectionDuration; day++) {
+            for (let day = 0; day < infectedFIFO.length; day++) {
                 dailyTransmissionRate += this.virus.getTransmissionProbability(day)
                         * infectedFIFO[day];
             }
-            let newlyInfected =
+            let beginningInfection =
                     contactsPerDay
                     * dailyTransmissionRate
                     * compartment.succeptible
                     / population;
-            //newlyInfected += this.calculateDitherOffset();
-            newlyInfected = Math.max(0, Math.round(newlyInfected));
-            newlyInfected = Math.min(compartment.succeptible, newlyInfected);
+            //beginningInfection += this.calculateDitherOffset();
+            beginningInfection = Math.max(0, Math.round(beginningInfection));
+            beginningInfection = Math.min(compartment.succeptible, beginningInfection);
 
-            // TODO treatment model needs to account for multiple days of treatment
-            // and triage.
-            const endingInfection = infectedFIFO.pop();
-            const endingTreatment = treatmentFIFO.pop();
-            treatmentInUse -= endingTreatment;
             // TODO Consider patients that die during treatment.
             // How many of those needing treatment and received treatment will die.
-            const dieAfterTreatment = Math.round(endingTreatment * infectionMortalityTreated / infectionMortalityUntreated);
+            // Avoid dividing by zero.
+            const denominator = Math.max(0.000001, infectionMortalityUntreated);
+            let dieAfterTreatment = Math.round(endingTreatment * infectionMortalityTreated / denominator);
+            dieAfterTreatment = Math.min(endingTreatment, dieAfterTreatment);
             const recoverAfterTreatment = endingTreatment - dieAfterTreatment;
+
             // Only treat those who would die if untreated.
             const needingBeginTreatment = Math.round(infectedFIFO[dayTreatmentBegins] * infectionMortalityUntreated / 100);
-            infectedFIFO[dayTreatmentBegins] -= needingBeginTreatment;
-            const treatmentAvailable = treatmentCapacity - treatmentInUse;
+            const treatmentAvailable = treatmentCapacity - compartment.inTreatment;
             const beginningTreatment = Math.min(needingBeginTreatment, treatmentAvailable);
-            treatmentInUse += beginningTreatment;
+            // Remove treated from infected FIFO so we do not double count them.
+            infectedFIFO[dayTreatmentBegins] -= beginningTreatment;
+
             // How many will die immediately because of no treatment.
             const dieForLackOfTreatment = needingBeginTreatment - beginningTreatment;
-            const newlyDead = dieAfterTreatment + dieForLackOfTreatment;
-
-            let newlyRecovered = endingInfection + recoverAfterTreatment;
 
             // Some recovered people will lose immunity.
             let recoveredThatLoseImmunity = Math.round(immunityLoss * compartment.recovered);
 
-            compartment.succeptible += recoveredThatLoseImmunity - newlyInfected;
-            compartment.recovered += newlyRecovered - recoveredThatLoseImmunity;
-            compartment.infected += newlyInfected - (newlyRecovered + newlyDead);
-            totalDead += newlyDead;
-            infectedFIFO.unshift(newlyInfected);
+            compartment.succeptible += recoveredThatLoseImmunity - beginningInfection;
+            compartment.recovered += endingInfection
+                    + recoverAfterTreatment
+                    - recoveredThatLoseImmunity;
+            compartment.infected += beginningInfection - (endingInfection + beginningTreatment);
+            compartment.inTreatment += beginningTreatment - endingTreatment;
+
+            totalDead += dieAfterTreatment + dieForLackOfTreatment;
+            infectedFIFO.unshift(beginningInfection);
             treatmentFIFO.unshift(beginningTreatment);
 
             // console.log("day = " + i
             //     + ", succeptible = " + compartment.succeptible
             //     + ", infected = " + compartment.infected
             //     + ", recovered = " + compartment.recovered
-            //     + ", newlyRecovered = " + newlyRecovered
-            //     + ", newlyDead = " + newlyDead
+            //     + ", inTreatment = " + compartment.inTreatment
+            //     + ", dieAfterTreatment = " + dieAfterTreatment
             //     + ", population = " + compartment.getPopulation()
             // );
             results.infectedArray.push(compartment.infected);
             results.succeptibleArray.push(compartment.succeptible);
             results.recoveredArray.push(compartment.recovered);
+            results.inTreatmentArray.push(compartment.inTreatment);
             results.deadArray.push(totalDead);
         }
         results.numDays = numDays;
