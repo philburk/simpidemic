@@ -449,6 +449,14 @@ class ActionList {
         this.days[day].push(actionModel);
     }
 
+    removeActionModel(actionModel) {
+        let day = actionModel.day;
+        if (this.days[day] != undefined) {
+            const index = this.days[day].indexOf(actionModel);
+            this.days[day].splice(index, 1);
+        }
+    }
+
     /**
     * TODO remove, unused
      * @return array containing every ActionModel
@@ -677,9 +685,34 @@ class ESimUI {
         return table;
     }
 
-// Add an editor for a single action
+    findActionRow(actionModel) {
+        let rows = this.actionTable.rows;
+        for (let i = 0; i < rows.length; i++) {
+            if (rows[i].actionModel === actionModel) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    findRowIndexByDay(day) {
+        let rows = this.actionTable.rows;
+        let i = 0;
+        for (; i < rows.length; i++) {
+            if (day < rows[i].actionModel.day) {
+                return i;
+            }
+        }
+        return i;
+    }
+
+    // Add an editor for a single action
     addActionModelEditor(actionModel) {
-        let row = this.actionTable.insertRow();
+        // Insertion sort the action list.
+        let day = actionModel.day;
+        let rowIndex = this.findRowIndexByDay(day);
+        let row = this.actionTable.insertRow(rowIndex);
+        row.actionModel = actionModel;
         let cell = row.insertCell();
         let checkbox = document.createElement("input");
         checkbox.setAttribute("type", "checkbox");
@@ -695,6 +728,22 @@ class ESimUI {
         cell.appendChild(document.createTextNode(actionModel.day + ": "));
 
         this.addSingleEditor(actionModel.model, row);
+
+        cell = row.insertCell();
+        let deleteButton = document.createElement("input");
+        deleteButton.setAttribute("type", "button");
+        deleteButton.value = "X";
+        deleteButton.gui = this;
+        deleteButton.actionModel = actionModel;
+        deleteButton.onclick = function() {
+            let index = this.gui.findActionRow(this.actionModel);
+            if (index >= 0) {
+                this.gui.actionTable.deleteRow(index);
+            }
+            this.gui.epidemic.removeActionModel(this.actionModel);
+            this.gui.refresh();
+        };
+        cell.appendChild(deleteButton);
     }
 
     setActionDay(day) {
@@ -851,6 +900,14 @@ class EpidemicModel {
         return actionModel;
     }
 
+    removeActionModel(actionModel) {
+        this.actionList.removeActionModel(actionModel);
+    }
+
+    calculateTreatmentCapacity(capacityPer100K) {
+        return Math.round(capacityPer100K * this.initialPopulation / 100000);
+    }
+
     simulate() {
         var compartment = new CompartmentModel(this.initialPopulation, 1);
         console.log("============ population = " + compartment.getPopulation());
@@ -864,8 +921,8 @@ class EpidemicModel {
         const infectionMortalityUntreated = this.virus.getInfectionMortalityUntreated();
         const dayTreatmentBegins = this.virus.getDayTreatmentBegins();
         const treatmentDuration = this.virus.getTreatmentDuration();
-        const treatmentCapacityPer100K = this.treatmentCapacityPer100KModel.getValue();
-        let treatmentCapacity = Math.round(treatmentCapacityPer100K * this.initialPopulation / 100000);
+        let treatmentCapacity = this.calculateTreatmentCapacity(
+                this.treatmentCapacityPer100KModel.getValue());
         const immunityLoss = this.virus.getImmunityLoss();
 
         let infectedFIFO = [];
@@ -889,6 +946,9 @@ class EpidemicModel {
                         switch(actionModel.name) {
                             case this.contactsPerDayModel.getName():
                                 contactsPerDay = actionModel.value;
+                                break;
+                            case this.treatmentCapacityPer100KModel.getName():
+                                treatmentCapacity = this.calculateTreatmentCapacity(actionModel.value);
                                 break;
                         }
                     }
@@ -927,7 +987,7 @@ class EpidemicModel {
 
             // Only treat those who would die if untreated.
             const needingBeginTreatment = Math.round(infectedFIFO[dayTreatmentBegins] * infectionMortalityUntreated / 100);
-            const treatmentAvailable = treatmentCapacity - compartment.inTreatment;
+            const treatmentAvailable = Math.max(0, treatmentCapacity - compartment.inTreatment);
             const beginningTreatment = Math.min(needingBeginTreatment, treatmentAvailable);
             // Remove treated from infected FIFO so we do not double count them.
             infectedFIFO[dayTreatmentBegins] -= beginningTreatment;
