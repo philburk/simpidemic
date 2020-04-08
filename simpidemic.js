@@ -12,9 +12,9 @@
 // EpidemicSimulator - top level application class
 
 
+// TODO Add Action,
 // TODO log taper
 // TODO Chart axes, scale
-// TODO Add Action,
 // TODO Action List/Editor, X-delete
 // TODO Add demographic model
 // TODO Model mortality(age)
@@ -52,6 +52,11 @@ class ParameterModelBase {
         if (this.numericFractionalDigits > 0) {
             this.numericWidth++; // make room for the decimal point
         }
+        this.actionable = false; // Can this be an action item.
+    }
+
+    getName() {
+        return this.name;
     }
 
     valueToString(value) {
@@ -76,6 +81,10 @@ class ParameterFloatModel extends ParameterModelBase {
         this.value = value;
     }
 
+    makeCopy() {
+        return new ParameterFloatModel(this.name, this.min, this.max, this.value);
+    }
+
     getType() {
         return ParameterType.FLOAT;
     }
@@ -98,6 +107,10 @@ class ParameterIntegerModel extends ParameterFloatModel {
     constructor(name, min, max, value) {
         super(name, min, max);
         this.value = Math.round(value);
+    }
+
+    makeCopy() {
+        return new ParameterIntegerModel(this.name, this.min, this.max, this.value);
     }
 
     valueToString(value) {
@@ -157,9 +170,13 @@ class RangeSlider {
         slider.max = 10000;
         slider.value = this.valueToPosition(parameterModel.getValue());
         slider.class = "slider";
-        slider.addEventListener("input", this);
+        this.addEventListener("input", this);
 
         this.updateValueText();
+    }
+
+    addEventListener(type, listener) {
+        this.slider.addEventListener(type, listener);
     }
 
     positionToValue(position) {
@@ -189,6 +206,10 @@ class RangeSlider {
 
     getNumericElement() {
         return this.numericElement;
+    }
+
+    setEnabled(enabled) {
+        this.slider.disabled = !enabled;
     }
 }
 
@@ -348,10 +369,20 @@ class ChartMaker extends CanvasBasedWidget {
         this.listeners.push(listener);
     }
 
+    drawMarker(realX, strokeStyle) {
+        this.ctx.beginPath();
+        this.ctx.lineWidth = "2";
+        let x = realX * this.xScaler;
+        this.ctx.strokeStyle = strokeStyle;
+        this.ctx.moveTo(x, this.height / 2);
+        this.ctx.lineTo(x, this.height);
+        this.ctx.stroke();
+    }
+
     drawTrace(chartTrace) {
         this.ctx.beginPath();
         this.ctx.lineWidth = "2";
-        this.ctx.strokeStyle = chartTrace.style; // Green path
+        this.ctx.strokeStyle = chartTrace.style;
         this.ctx.moveTo(0, this.height);
         let data = chartTrace.data;
         let localMax = this.dataMax > 0 ? this.dataMax : Math.max.apply(null, data);
@@ -391,6 +422,67 @@ class ChartMaker extends CanvasBasedWidget {
 // ============= Epidemic Specific Code ===========================
 // ================================================================
 
+class ActionModel {
+
+    constructor(day, model) {
+        this.day = day;
+        this.model = model;
+        this.active = true;
+    }
+
+    get name() {
+        return this.model.getName();
+    }
+
+    get value() {
+        return this.model.getValue();
+    }
+}
+
+class ActionList {
+    constructor(day, model) {
+        this.days = [];
+    }
+
+    /**
+     * @return array of ActionItem objects or undefined
+     */
+    getDailyActions(day) {
+        return this.days[day];
+    }
+
+    addActionModel(actionModel) {
+        let day = actionModel.day;
+        if (this.days[day] == undefined) {
+            this.days[day] = [];
+        }
+        this.days[day].push(actionModel);
+    }
+
+    removeActionModel(actionModel) {
+        let day = actionModel.day;
+        if (this.days[day] != undefined) {
+            const index = this.days[day].indexOf(actionModel);
+            this.days[day].splice(index, 1);
+        }
+    }
+
+    /**
+    * TODO remove, unused
+     * @return array containing every ActionModel
+     */
+    getAllActions(day) {
+       let allActions = [];
+       for (var day in this.days) {
+           let dailyActions = this.days[day];
+           dailyActions.forEach(function(actionModel) {
+               allActions.push(actionModel);
+           });
+       }
+       return allActions;
+   }
+}
+
 class VirusModel {
     constructor() {
         this.parameters = [];
@@ -400,10 +492,10 @@ class VirusModel {
                 0.0, 1.0, transmissionProbabilities);
         this.parameters.push(this.transmissionProbabilitiesModel);
 
-        this.infectionMortalityTreatedModel = new ParameterFloatModel("mortalityTreated", 0.0, 100.0, 2.0);
+        this.infectionMortalityTreatedModel = new ParameterFloatModel("mortalityTreated", 0.0, 100.0, 3.0);
         this.parameters.push(this.infectionMortalityTreatedModel);
 
-        this.infectionMortalityUntreatedModel = new ParameterFloatModel("mortalityUntreated", 0.0, 100.0, 10.0);
+        this.infectionMortalityUntreatedModel = new ParameterFloatModel("mortalityUntreated", 0.0, 100.0, 4.0);
         this.parameters.push(this.infectionMortalityUntreatedModel);
 
         this.dayTreatmentBeginsModel = new ParameterIntegerModel("dayTreatmentBegins",
@@ -478,6 +570,17 @@ class SimulationResults {
         this.inTreatmentArray = [];
     }
 }
+/*
+class SliderListener {
+    constructor(esimUI, model) {
+        this.esimUI = esimUI;
+        this.model = model;
+    }
+    handleEvent(event) {
+        switch(event.ty)
+    }
+}
+*/
 
 class ESimUI {
     constructor(epidemic, topDiv) {
@@ -520,11 +623,23 @@ class ESimUI {
         this.dailyReportElement.innerHTML = text;
     }
 
+    redrawChart() {
+        this.chart.setCursor(this.cursorDay);
+        this.chart.draw();
+        // Draw the actions.
+        let rows = this.actionTable.rows;
+        for (let i = 0; i < rows.length; i++) {
+            let model = rows[i].actionModel;
+            let strokeStyle = model.active ? "orange" : "gray";
+            this.chart.drawMarker(model.day, strokeStyle);
+        }
+    }
+
     onClickXY(x, y) {
         this.cursorDay = Math.floor(x);
         this.reportDay(this.cursorDay);
-        this.chart.setCursor(this.cursorDay);
-        this.chart.draw();
+        this.setActionDay(this.cursorDay);
+        this.redrawChart();
     }
 
     createTableHeader(name) {
@@ -534,12 +649,11 @@ class ESimUI {
         return th;
     }
 
-    addSingleEditor(model, table) {
+    addSingleEditor(model, row) {
         model.addListener(this);
         let smallMargin = "2px";
         let smallPadding = "2px";
         var slider = new RangeSlider(model);
-        let row = table.insertRow();
         row.style.margin = smallMargin;
         row.style.padding = smallPadding;
         let cell = row.insertCell();
@@ -562,10 +676,9 @@ class ESimUI {
         cell.appendChild(slider.getElement());
     }
 
-    addArrayEditor(model, table) {
+    addArrayEditor(model, row) {
         model.addListener(this);
         var editor = new ArrayEditor(model, 350, 100);
-        let row = table.insertRow();
         let cell = row.insertCell();
         cell.colSpan = 3;
         cell.appendChild(document.createTextNode(model.name));
@@ -578,13 +691,14 @@ class ESimUI {
         var i = 0, length = models.length;
         for (; i < length; i++) {
             let model = models[i];
+            let row = table.insertRow();
             switch(model.getType()) {
                 case ParameterType.FLOAT:
                 case ParameterType.INTEGER:
-                    this.addSingleEditor(model, table);
+                    this.addSingleEditor(model, row);
                     break;
                 case ParameterType.ARRAY:
-                    this.addArrayEditor(model, table);
+                    this.addArrayEditor(model, row);
                     break;
                 default:
             }
@@ -592,25 +706,130 @@ class ESimUI {
         return table;
     }
 
+    findActionRow(actionModel) {
+        let rows = this.actionTable.rows;
+        for (let i = 0; i < rows.length; i++) {
+            if (rows[i].actionModel === actionModel) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    findRowIndexByDay(day) {
+        let rows = this.actionTable.rows;
+        let i = 0;
+        for (; i < rows.length; i++) {
+            if (day < rows[i].actionModel.day) {
+                return i;
+            }
+        }
+        return i;
+    }
+
+    // Add an editor for a single action
+    addActionModelEditor(actionModel) {
+        // Insertion sort the action list.
+        let day = actionModel.day;
+        let rowIndex = this.findRowIndexByDay(day);
+        let row = this.actionTable.insertRow(rowIndex);
+        row.actionModel = actionModel;
+        let cell = row.insertCell();
+        let checkbox = document.createElement("input");
+        checkbox.setAttribute("type", "checkbox");
+        checkbox.checked = actionModel.active;
+        checkbox.model = actionModel;
+        checkbox.gui = this;
+        checkbox.onclick = function() {
+            this.model.active = this.checked;
+            this.gui.refresh();
+        };
+        cell.appendChild(checkbox);
+
+        cell.appendChild(document.createTextNode(actionModel.day + ": "));
+
+        this.addSingleEditor(actionModel.model, row);
+
+        cell = row.insertCell();
+        let deleteButton = document.createElement("input");
+        deleteButton.setAttribute("type", "button");
+        deleteButton.value = "X";
+        deleteButton.gui = this;
+        deleteButton.actionModel = actionModel;
+        deleteButton.onclick = function() {
+            let index = this.gui.findActionRow(this.actionModel);
+            if (index >= 0) {
+                this.gui.actionTable.deleteRow(index);
+            }
+            this.gui.epidemic.removeActionModel(this.actionModel);
+            this.gui.refresh();
+        };
+        cell.appendChild(deleteButton);
+    }
+
+    setActionDay(day) {
+        this.actionHelp.innerHTML = "Add action for day " + day;
+        for (let i=0; i < this.addActionButtons.length; i++) {
+            this.addActionButtons[i].disabled = false;
+        }
+    }
+
+    createActionEditor() {
+        this.actionEditorDiv = document.createElement("DIV");
+        let actionNames = this.epidemic.getActionNames();
+        this.actionHelp = document.createElement("P");
+        this.actionHelp.innerHTML = "Click on the chart to specify a day for action."
+        this.actionEditorDiv.appendChild(this.actionHelp);
+        this.addActionButtons = [];
+        for (let i=0; i < actionNames.length; i++) {
+            let addButton = document.createElement("input");
+            addButton.setAttribute("type", "button");
+            addButton.value = "Add change to " + actionNames[i];
+            addButton.gui = this;
+            addButton.actionIndex = i;
+            addButton.disabled = true;
+            addButton.onclick = function() {
+                let actionModel = this.gui.epidemic.addActionModel(this.gui.cursorDay, this.actionIndex);
+                this.gui.addActionModelEditor(actionModel);
+            };
+            this.addActionButtons.push(addButton);
+            this.actionEditorDiv.appendChild(addButton);
+            this.actionEditorDiv.appendChild(document.createElement("BR"));
+        }
+        this.actionTable = document.createElement("TABLE");
+        this.actionEditorDiv.appendChild(this.actionTable);
+        return this.actionEditorDiv;
+    }
 
     addParameterEditors() {
+        this.nonActionableSliders = [];
         // make Table for editors
         let table = document.createElement("TABLE");
         let tHead = table.createTHead();
         let row = tHead.insertRow();
         row.appendChild(this.createTableHeader("Virus"));
         row.appendChild(this.createTableHeader("General"));
+        row.appendChild(this.createTableHeader("Actions"));
         row = table.insertRow();
+
         let cell = row.insertCell();
+        cell.style.verticalAlign = "top";
         let models = this.epidemic.getVirusParameterModels();
         cell.appendChild(this.createParameterEditor(models));
+
         cell = row.insertCell();
+        cell.style.verticalAlign = "top";
         models = this.epidemic.getGeneralParameterModels();
         cell.appendChild(this.createParameterEditor(models));
+
+        cell = row.insertCell();
+        cell.style.verticalAlign = "top";
+        cell.appendChild(this.createActionEditor());
+
         this.topDiv.appendChild(table);
     }
 
-
+    // Parameter listener methods.
     onChange(model) {
         this.refresh();
     }
@@ -622,7 +841,6 @@ class ESimUI {
         this.recoveredTrace.data = results.recoveredArray;
         this.deadTrace.data = results.deadArray;
         this.inTreatmentTrace.data = results.inTreatmentArray;
-        this.chart.draw();
 
         if (this.cursorDay >= 0) {
             // Avoid cursor beyond end of data.
@@ -632,6 +850,7 @@ class ESimUI {
             }
             this.reportDay(this.cursorDay);
         }
+        this.redrawChart();
     }
 
     appendParagraph(text) {
@@ -656,12 +875,16 @@ class EpidemicModel {
 
         this.contactsPerDayModel = new ParameterFloatModel("contactsPerDay", 0.2, 4.0, 2.0);
         this.parameters.push(this.contactsPerDayModel);
+        this.contactsPerDayModel.actionable = true;
 
-        this.treatmentCapacityPer100KModel = new ParameterIntegerModel("treatmentCapacityPer100K", 0, 10000, 25);
+        this.treatmentCapacityPer100KModel = new ParameterIntegerModel("treatCapPer100K", 0, 10000, 25);
         this.parameters.push(this.treatmentCapacityPer100KModel);
 
         this.numDaysModel = new ParameterIntegerModel("numDays", 40, 600, 100);
         this.parameters.push(this.numDaysModel);
+
+        this.actionList = new ActionList();
+        this.actionableModels = [this.contactsPerDayModel, this.treatmentCapacityPer100KModel];
     }
 
     getGeneralParameterModels() {
@@ -684,6 +907,31 @@ class EpidemicModel {
         return 0.5 * (Math.random() + Math.random() - 1.0);
     }
 
+    // Actions ========================
+    getActionNames() {
+        let names = [];
+        for (let i = 0; i < this.actionableModels.length; i++) {
+            let model = this.actionableModels[i];
+            names.push(model.getName());
+        }
+        return names;
+    }
+
+    addActionModel(day, actionIndex) {
+        let localModel = this.actionableModels[actionIndex].makeCopy();
+        let actionModel = new ActionModel(day, localModel);
+        this.actionList.addActionModel(actionModel);
+        return actionModel;
+    }
+
+    removeActionModel(actionModel) {
+        this.actionList.removeActionModel(actionModel);
+    }
+
+    calculateTreatmentCapacity(capacityPer100K) {
+        return Math.round(capacityPer100K * this.initialPopulation / 100000);
+    }
+
     simulate() {
         var compartment = new CompartmentModel(this.initialPopulation, 1);
         console.log("============ population = " + compartment.getPopulation());
@@ -692,13 +940,13 @@ class EpidemicModel {
         // Get initial parameters from models.
         const numDays = this.numDaysModel.getValue();
         const infectionDuration = this.virus.getInfectionDuration();
-        const contactsPerDay = this.contactsPerDayModel.getValue();
+        let contactsPerDay = this.contactsPerDayModel.getValue();
         const infectionMortalityTreated = this.virus.getInfectionMortalityTreated();
         const infectionMortalityUntreated = this.virus.getInfectionMortalityUntreated();
         const dayTreatmentBegins = this.virus.getDayTreatmentBegins();
         const treatmentDuration = this.virus.getTreatmentDuration();
-        const treatmentCapacityPer100K = this.treatmentCapacityPer100KModel.getValue();
-        let treatmentCapacity = Math.round(treatmentCapacityPer100K * this.initialPopulation / 100000);
+        let treatmentCapacity = this.calculateTreatmentCapacity(
+                this.treatmentCapacityPer100KModel.getValue());
         const immunityLoss = this.virus.getImmunityLoss();
 
         let infectedFIFO = [];
@@ -712,7 +960,25 @@ class EpidemicModel {
         // most recent number of infected is at infectedFIFO[0]
         infectedFIFO.unshift(compartment.getInfected());
         treatmentFIFO.unshift(0);
-        for (var i = 0; i < numDays; i++) {
+        for (var day = 0; day < numDays; day++) {
+            // Apply actions for the day.
+            let dailyActions = this.actionList.getDailyActions(day);
+            if (dailyActions != undefined) {
+                for (let actionIndex = 0; actionIndex < dailyActions.length; actionIndex++) {
+                    let actionModel = dailyActions[actionIndex];
+                    if (actionModel.active) {
+                        switch(actionModel.name) {
+                            case this.contactsPerDayModel.getName():
+                                contactsPerDay = actionModel.value;
+                                break;
+                            case this.treatmentCapacityPer100KModel.getName():
+                                treatmentCapacity = this.calculateTreatmentCapacity(actionModel.value);
+                                break;
+                        }
+                    }
+                }
+            }
+
             // Population changes due to deaths.
             const population = compartment.getPopulation();
             const endingInfection = infectedFIFO.pop();
@@ -722,9 +988,9 @@ class EpidemicModel {
             // Convolve the daily transmission probability with
             // the number of infected cases for that day.
             let dailyTransmissionRate = 0;
-            for (let day = 0; day < infectedFIFO.length; day++) {
-                dailyTransmissionRate += this.virus.getTransmissionProbability(day)
-                        * infectedFIFO[day];
+            for (let infectedDay = 0; infectedDay < infectedFIFO.length; infectedDay++) {
+                dailyTransmissionRate += this.virus.getTransmissionProbability(infectedDay)
+                        * infectedFIFO[infectedDay];
             }
             let beginningInfection =
                     contactsPerDay
@@ -745,7 +1011,7 @@ class EpidemicModel {
 
             // Only treat those who would die if untreated.
             const needingBeginTreatment = Math.round(infectedFIFO[dayTreatmentBegins] * infectionMortalityUntreated / 100);
-            const treatmentAvailable = treatmentCapacity - compartment.inTreatment;
+            const treatmentAvailable = Math.max(0, treatmentCapacity - compartment.inTreatment);
             const beginningTreatment = Math.min(needingBeginTreatment, treatmentAvailable);
             // Remove treated from infected FIFO so we do not double count them.
             infectedFIFO[dayTreatmentBegins] -= beginningTreatment;
