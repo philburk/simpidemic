@@ -369,10 +369,20 @@ class ChartMaker extends CanvasBasedWidget {
         this.listeners.push(listener);
     }
 
+    drawMarker(realX, strokeStyle) {
+        this.ctx.beginPath();
+        this.ctx.lineWidth = "2";
+        let x = realX * this.xScaler;
+        this.ctx.strokeStyle = strokeStyle;
+        this.ctx.moveTo(x, this.height / 2);
+        this.ctx.lineTo(x, this.height);
+        this.ctx.stroke();
+    }
+
     drawTrace(chartTrace) {
         this.ctx.beginPath();
         this.ctx.lineWidth = "2";
-        this.ctx.strokeStyle = chartTrace.style; // Green path
+        this.ctx.strokeStyle = chartTrace.style;
         this.ctx.moveTo(0, this.height);
         let data = chartTrace.data;
         let localMax = this.dataMax > 0 ? this.dataMax : Math.max.apply(null, data);
@@ -482,10 +492,10 @@ class VirusModel {
                 0.0, 1.0, transmissionProbabilities);
         this.parameters.push(this.transmissionProbabilitiesModel);
 
-        this.infectionMortalityTreatedModel = new ParameterFloatModel("mortalityTreated", 0.0, 100.0, 2.0);
+        this.infectionMortalityTreatedModel = new ParameterFloatModel("mortalityTreated", 0.0, 100.0, 3.0);
         this.parameters.push(this.infectionMortalityTreatedModel);
 
-        this.infectionMortalityUntreatedModel = new ParameterFloatModel("mortalityUntreated", 0.0, 100.0, 10.0);
+        this.infectionMortalityUntreatedModel = new ParameterFloatModel("mortalityUntreated", 0.0, 100.0, 4.0);
         this.parameters.push(this.infectionMortalityUntreatedModel);
 
         this.dayTreatmentBeginsModel = new ParameterIntegerModel("dayTreatmentBegins",
@@ -613,12 +623,23 @@ class ESimUI {
         this.dailyReportElement.innerHTML = text;
     }
 
+    redrawChart() {
+        this.chart.setCursor(this.cursorDay);
+        this.chart.draw();
+        // Draw the actions.
+        let rows = this.actionTable.rows;
+        for (let i = 0; i < rows.length; i++) {
+            let model = rows[i].actionModel;
+            let strokeStyle = model.active ? "orange" : "gray";
+            this.chart.drawMarker(model.day, strokeStyle);
+        }
+    }
+
     onClickXY(x, y) {
         this.cursorDay = Math.floor(x);
         this.reportDay(this.cursorDay);
         this.setActionDay(this.cursorDay);
-        this.chart.setCursor(this.cursorDay);
-        this.chart.draw();
+        this.redrawChart();
     }
 
     createTableHeader(name) {
@@ -792,14 +813,17 @@ class ESimUI {
         row = table.insertRow();
 
         let cell = row.insertCell();
+        cell.style.verticalAlign = "top";
         let models = this.epidemic.getVirusParameterModels();
         cell.appendChild(this.createParameterEditor(models));
 
         cell = row.insertCell();
+        cell.style.verticalAlign = "top";
         models = this.epidemic.getGeneralParameterModels();
         cell.appendChild(this.createParameterEditor(models));
 
         cell = row.insertCell();
+        cell.style.verticalAlign = "top";
         cell.appendChild(this.createActionEditor());
 
         this.topDiv.appendChild(table);
@@ -817,7 +841,6 @@ class ESimUI {
         this.recoveredTrace.data = results.recoveredArray;
         this.deadTrace.data = results.deadArray;
         this.inTreatmentTrace.data = results.inTreatmentArray;
-        this.chart.draw();
 
         if (this.cursorDay >= 0) {
             // Avoid cursor beyond end of data.
@@ -827,6 +850,7 @@ class ESimUI {
             }
             this.reportDay(this.cursorDay);
         }
+        this.redrawChart();
     }
 
     appendParagraph(text) {
@@ -853,7 +877,7 @@ class EpidemicModel {
         this.parameters.push(this.contactsPerDayModel);
         this.contactsPerDayModel.actionable = true;
 
-        this.treatmentCapacityPer100KModel = new ParameterIntegerModel("treatmentCapacityPer100K", 0, 10000, 25);
+        this.treatmentCapacityPer100KModel = new ParameterIntegerModel("treatCapPer100K", 0, 10000, 25);
         this.parameters.push(this.treatmentCapacityPer100KModel);
 
         this.numDaysModel = new ParameterIntegerModel("numDays", 40, 600, 100);
