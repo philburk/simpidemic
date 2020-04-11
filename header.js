@@ -24,4 +24,4 @@ class TopMenu {
 let menu = new TopMenu();
 menu.add("Home", "index.html");
 menu.add("Simulator", "simpidemic.html");
-menu.add("Codex", "https://github.com/philburk/simpidemic");
+menu.add("Code", "https://github.com/philburk/simpidemic");
