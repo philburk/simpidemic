@@ -13,7 +13,7 @@ Click on the chart to see detailed numbers for a specific day.
 You can apply an Action on a specific day. You can change, for example, the contactsPerDay, which is a measure of "social distancing".
 
 1. Click on the chart to select a day.
-1. Click on an Actions button, eg. "Add change to contactsperDay" button.
+1. Click on an Actions button, eg. "Add change to contactsPerDay" button.
 1. Change that slider and see the effect beginning with the selected day.
 1. Click the checkbox to temporarity disable the Action.
 1. Click the "X" button to delete the Action.
