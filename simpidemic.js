@@ -11,17 +11,17 @@
 // EpidemicModel - top level model and simulator
 // EpidemicSimulator - top level application class
 
-
-// TODO Add Action,
 // TODO log taper
-// TODO Chart axes, scale
-// TODO Action List/Editor, X-delete
+// TODO parametric transmission probabilities
 // TODO Add demographic model
 // TODO Model mortality(age)
-// TODO model testCapacityperDay
+// TODO Add socialDistancing parameter * density => contactsPerDay
+// TODO model testingCapacityPerDay
 // TODO Calculate confirmed cases vs hidden infected
 // TODO improve treatment model, 2 weeks on vent
 // TODO add triage model
+// TODO menu for different virus models {smallpox, sars-cov2}
+// TODO Add population controller
 
 // var addAttribute = function(element, name, value) {
 //     var att = document.createAttribute(name);
@@ -332,17 +332,66 @@ class ChartMaker extends CanvasBasedWidget {
         super(width, height);
         this.canvas.style = style;
 
+        this.leftMargin = 60;
+        this.rightMargin = 10;
+        this.plotWidth = this.width - (this.leftMargin + this.rightMargin);
+        this.topMargin = 10;
+        this.bottomMargin = 10;
+        this.plotHeight = this.height - (this.topMargin + this.bottomMargin);
+
         this.dataMax = 0;
         this.traces = [];
         this.cursor = -1;
 
         this.canvas.addEventListener('click', function(event) {
-            let x = (event.pageX - this.canvas.offsetLeft) / this.xScaler;
-            let y = (event.pageY - this.canvas.offsetTop) / this.yScaler;
+            let x = this.screenToRealX(event.pageX);
+            let y = this.screenToRealY(event.pageY);
             this.listeners.forEach(function(listener) {
                 listener.onClickXY(x, y);
             });
         }.bind(this));
+    }
+
+    screenToRealX(screenX) {
+        return (screenX - this.canvas.offsetLeft - this.leftMargin) / this.xScaler;
+    }
+
+    screenToRealY(screenY) { // TOTO upside down
+        return (screenY - this.canvas.offsetTop - this.topMargin) / this.yScaler;
+    }
+
+    realToPlotX(realX) {
+        return this.leftMargin + ((realX - this.realXMin) * this.xScaler);
+    }
+
+    realToPlotY(realY) {
+        return (this.height - this.bottomMargin) - ((realY - this.realYMin) * this.yScaler);
+    }
+
+    setRealBounds(realXMin, realXMax, realYMin, realYMax) {
+        // determine nice division and round realYMax
+        // TODO round yMin as well
+        let yRange = realYMax - realYMin;
+        let logRange = Math.log(yRange) / Math.log(10);
+        let exponent = Math.floor(logRange);
+        let mantissa = logRange - exponent;
+        let normalized = Math.pow(10, mantissa);
+        let division = 2.0;
+        if (normalized < 2.5) division = 0.5;
+        else if (normalized < 5) division = 1.0;
+        let upNormalized = division * Math.floor((normalized + division) / division);
+        let powerY = Math.pow(10.0, exponent);
+        realYMax = upNormalized * powerY;
+        this.divisionY = division * powerY;
+
+        this.realXMin = realXMin;
+        this.realYMin = realYMin;
+        this.realXMax = realXMax;
+        this.realYMax = realYMax;
+        this.realXRange = realXMax - realXMin;
+        this.realYRange = realYMax - realYMin;
+        this.xScaler = this.plotWidth / this.realXRange;
+        this.yScaler = this.plotHeight / this.realYRange;
     }
 
     getElement() {
@@ -372,48 +421,106 @@ class ChartMaker extends CanvasBasedWidget {
     drawMarker(realX, strokeStyle) {
         this.ctx.beginPath();
         this.ctx.lineWidth = "2";
-        let x = realX * this.xScaler;
         this.ctx.strokeStyle = strokeStyle;
-        this.ctx.moveTo(x, this.height / 2);
-        this.ctx.lineTo(x, this.height);
+        let x = this.realToPlotX(realX);
+        let y1 = this.height - this.bottomMargin;
+        let y2 = this.topMargin + (this.plotHeight / 2);
+        this.ctx.moveTo(x, y1);
+        this.ctx.lineTo(x, y2);
         this.ctx.stroke();
     }
 
+    scanDataTraces() {
+        let maxX = 0;
+        let maxY = 0;
+        for (let trace of this.traces) {
+            if (trace.data.length > maxX) maxX = trace.data.length;
+            let traceMax = Math.max.apply(null, trace.data);
+            if (traceMax > maxY) maxY = traceMax;
+        }
+        this.setRealBounds(0, maxX, 0, maxY);
+    }
+
+    drawYTick(realY) {
+        let x1 = this.leftMargin;
+        let x2 = x1 - 10;
+        let y = this.realToPlotY(realY);
+
+        this.ctx.beginPath();
+        this.ctx.lineWidth = "1";
+        this.ctx.moveTo(x1, y);
+        this.ctx.lineTo(x2, y);
+        this.ctx.stroke();
+
+        this.ctx.font = "12px Arial";
+        this.ctx.textAlign = "right";
+        this.ctx.textBaseline = "middle";
+        this.ctx.fillText("" + realY, x2 - 3, y);
+    }
+
+    drawYAxis() {
+        let numTicks = 1 + (this.realYRange / this.divisionY);
+        for (let i = 0; i < numTicks; i++) {
+            let tickY = this.realYMin + (i * this.divisionY);
+            this.drawYTick(tickY);
+        }
+    }
+
     drawTrace(chartTrace) {
+        let data = chartTrace.data;
+
+        // Draw polyline for the data trace.
         this.ctx.beginPath();
         this.ctx.lineWidth = "2";
         this.ctx.strokeStyle = chartTrace.style;
-        this.ctx.moveTo(0, this.height);
-        let data = chartTrace.data;
-        let localMax = this.dataMax > 0 ? this.dataMax : Math.max.apply(null, data);
-        let xScaler = this.width / data.length;
-        this.xScaler = xScaler;
-        var yScaler = this.height / localMax;
-        this.yScaler = yScaler;
+        let x = this.realToPlotX(0);
+        let y = this.realToPlotX(data[0]);
+        this.ctx.moveTo(x, y);
         for (var i = 0; i < data.length; i++) {
-          var x = i * xScaler;
-          var y = this.height - (yScaler * data[i]);
+          x = this.realToPlotX(i);
+          y = this.realToPlotY(data[i]);
           this.ctx.lineTo(x, y);
           this.ctx.arc(x, y, 2, 0, 2 * Math.PI);
           this.ctx.moveTo(x, y);
         }
         this.ctx.stroke();
-        // Draw cursor if enabled.
-        if (this.cursor >= 0) {
-            let x = this.cursor * xScaler;
-            this.ctx.beginPath();
-            this.ctx.lineWidth = "2";
-            this.ctx.strokeStyle = "black";
-            this.ctx.moveTo(x, this.height);
-            this.ctx.lineTo(x, 0);
-            this.ctx.stroke();
-        }
     }
 
     draw() {
+
         this.clear();
+        // Draw canvas border
+        this.ctx.lineWidth = "1";
+        this.ctx.strokeStyle = "blue";
+        this.ctx.beginPath();
+        this.ctx.rect(1, 1, this.width - 2, this.height - 2);
+        this.ctx.stroke();
+
+        // Draw real border
+        this.ctx.beginPath();
+        this.ctx.rect(this.leftMargin, this.topMargin,
+            this.plotWidth - 2, this.plotHeight - 2);
+        this.ctx.stroke();
+
+        this.scanDataTraces();
+
         for (let trace of this.traces) {
             this.drawTrace(trace);
+        }
+
+        this.drawYAxis();
+
+        // Draw cursor if enabled.
+        if (this.cursor >= 0) {
+            let x = this.realToPlotX(this.cursor);
+            this.ctx.beginPath();
+            this.ctx.lineWidth = "2";
+            this.ctx.strokeStyle = "black";
+            let y1 = this.height - this.bottomMargin;
+            let y2 = this.topMargin;
+            this.ctx.moveTo(x, y1);
+            this.ctx.lineTo(x, y2);
+            this.ctx.stroke();
         }
     }
 }
@@ -505,7 +612,7 @@ class VirusModel {
         this.treatmentDurationModel = new ParameterIntegerModel("treatmentDuration", 0, 40, 14);
         this.parameters.push(this.treatmentDurationModel);
 
-        this.immunityLossModel = new ParameterFloatModel("immunityLoss", 0.0, 0.1, 0.01);
+        this.immunityLossModel = new ParameterFloatModel("immunityLoss", 0.0, 5.0, 1.0);
         this.parameters.push(this.immunityLossModel);
     }
 
@@ -587,7 +694,7 @@ class ESimUI {
         this.epidemic = epidemic;
         this.topDiv = topDiv;
         console.log(this.topDiv);
-        this.appendParagraph("Disclaimer: In Progress - This has NOT been verified by an epidemiologist.");
+//        this.appendParagraph("Disclaimer: In Progress - This has NOT been verified by an epidemiologist.");
         this.addParameterEditors();
         this.dailyReportElement = this.appendParagraph("Day - click on chart to see details for a given day.");
         this.addChart();
@@ -615,15 +722,22 @@ class ESimUI {
     }
 
     reportDay(day) {
+        let lastDay = this.epidemic.getNumDays() - 1;
+        if (day < 0) day = lastDay;
         let text = "Day " + day;
         text += ", infected = " + this.lastResults.infectedArray[day];
         text += ", recovered = " + this.lastResults.recoveredArray[day];
         text += ", inTreatment = " + this.lastResults.inTreatmentArray[day];
         text += ", dead = " + this.lastResults.deadArray[day];
+        if (day != lastDay) {
+            text += " ... Day " + lastDay;
+            text += ", dead = " + this.lastResults.deadArray[lastDay];
+        }
         this.dailyReportElement.innerHTML = text;
     }
 
     redrawChart() {
+        this.reportDay(this.cursorDay);
         this.chart.setCursor(this.cursorDay);
         this.chart.draw();
         // Draw the actions.
@@ -791,6 +905,7 @@ class ESimUI {
             addButton.onclick = function() {
                 let actionModel = this.gui.epidemic.addActionModel(this.gui.cursorDay, this.actionIndex);
                 this.gui.addActionModelEditor(actionModel);
+                this.gui.refresh();
             };
             this.addActionButtons.push(addButton);
             this.actionEditorDiv.appendChild(addButton);
@@ -848,7 +963,6 @@ class ESimUI {
                 this.cursorDay = results.numDays - 1;
                 this.chart.setCursor(this.cursorDay);
             }
-            this.reportDay(this.cursorDay);
         }
         this.redrawChart();
     }
@@ -873,7 +987,7 @@ class EpidemicModel {
         this.virus = new VirusModel();
         this.parameters = [];
 
-        this.contactsPerDayModel = new ParameterFloatModel("contactsPerDay", 0.2, 4.0, 2.0);
+        this.contactsPerDayModel = new ParameterFloatModel("contactsPerDay", 0.1, 4.0, 2.0);
         this.parameters.push(this.contactsPerDayModel);
         this.contactsPerDayModel.actionable = true;
 
@@ -897,6 +1011,10 @@ class EpidemicModel {
 
     getInitialPopulation() {
         return this.initialPopulation;
+    }
+
+    getNumDays() {
+        return this.numDaysModel.getValue();
     }
 
     setContactsPerDay(contactsPerDay) {
@@ -1020,7 +1138,7 @@ class EpidemicModel {
             const dieForLackOfTreatment = needingBeginTreatment - beginningTreatment;
 
             // Some recovered people will lose immunity.
-            let recoveredThatLoseImmunity = Math.round(immunityLoss * compartment.recovered);
+            let recoveredThatLoseImmunity = Math.round(immunityLoss * compartment.recovered / 100);
 
             compartment.succeptible += recoveredThatLoseImmunity - beginningInfection;
             compartment.recovered += endingInfection
