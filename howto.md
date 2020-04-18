@@ -1,3 +1,5 @@
+[Home](index.html) | [Simulator](simulator.html) | Instructions | [Code](https://github.com/philburk/simpidemic)
+
 # How to Use the Simulator
 
 ## Controlling the Simulator
