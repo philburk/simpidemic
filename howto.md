@@ -22,8 +22,9 @@ You can apply an Action on a specific day. You can change, for example, the cont
 
 These parameters are specific to the virus or the disease.
 
-**treatmentProbabilityPerDay** = the probability of transmitting the virus from an infected person to an uninfected contact.
-The bar chart shows the probability for each day. The probabilities range from 0.0 to 1.0.
+**peakContagiousDay** = the day after infection when someone is most contagious.
+
+**contagiousness** = an abstract measure of how contagious the virus is.
 
 **mortalityUntreated** = the percentage mortality for those infected and who are **not** treated.
 Note that this is different than the "case mortality rate". The treatment in this case refers to some critical treatment that may be in short supply, for example a ventilator or new drug.
