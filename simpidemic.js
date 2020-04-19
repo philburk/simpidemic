@@ -593,11 +593,17 @@ class ActionList {
 class VirusModel {
     constructor() {
         this.parameters = [];
-        let transmissionProbabilities =
-            [0.0, 0.0, 0.1, 0.2, 0.5, 0.9, 0.7,  0.2, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0];
-        this.transmissionProbabilitiesModel = new ParameterArrayModel("transmissionProbabilitiesByDay",
-                0.0, 1.0, transmissionProbabilities);
-        this.parameters.push(this.transmissionProbabilitiesModel);
+        // let transmissionProbabilities =
+        //     [0.0, 0.0, 0.1, 0.2, 0.5, 0.9, 0.7,  0.2, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0];
+        // this.transmissionProbabilitiesModel = new ParameterArrayModel("transmissionProbabilitiesByDay",
+        //         0.0, 1.0, transmissionProbabilities);
+        // this.parameters.push(this.transmissionProbabilitiesModel);
+
+        this.peakContagiousDayModel = new ParameterFloatModel("peakContagiousDay", 1.0, 21.0, 4.0);
+        this.parameters.push(this.peakContagiousDayModel);
+
+        this.contagiousnessModel = new ParameterFloatModel("contagiousness", 0.5, 1.5, 1.0);
+        this.parameters.push(this.contagiousnessModel);
 
         this.infectionMortalityTreatedModel = new ParameterFloatModel("mortalityTreated", 0.0, 100.0, 3.0);
         this.parameters.push(this.infectionMortalityTreatedModel);
@@ -605,8 +611,7 @@ class VirusModel {
         this.infectionMortalityUntreatedModel = new ParameterFloatModel("mortalityUntreated", 0.0, 100.0, 4.0);
         this.parameters.push(this.infectionMortalityUntreatedModel);
 
-        this.dayTreatmentBeginsModel = new ParameterIntegerModel("dayTreatmentBegins",
-                0, transmissionProbabilities.length, 7);
+        this.dayTreatmentBeginsModel = new ParameterIntegerModel("dayTreatmentBegins", 0, 21, 7);
         this.parameters.push(this.dayTreatmentBeginsModel);
 
         this.treatmentDurationModel = new ParameterIntegerModel("treatmentDuration", 0, 40, 14);
@@ -620,8 +625,16 @@ class VirusModel {
         return this.parameters;
     }
 
+    /**
+     * Calculate transmission probability.
+     */
     getTransmissionProbability(day) {
-        return this.transmissionProbabilitiesModel.getValue(day);
+        let peakDay = this.peakContagiousDayModel.getValue();
+        let contagiousness = this.contagiousnessModel.getValue();
+        let dayFactor = 2.0 * day / peakDay;
+        let numerator = 4.0 * contagiousness * dayFactor;
+        let denominator = peakDay * Math.exp(dayFactor);
+        return numerator / denominator;
     }
 
     getInfectionMortalityTreated() {
@@ -645,7 +658,8 @@ class VirusModel {
     }
 
     getInfectionDuration() {
-        return this.transmissionProbabilitiesModel.size();
+        let peakDay = this.peakContagiousDayModel.getValue();
+        return peakDay * 5;
     }
 }
 
