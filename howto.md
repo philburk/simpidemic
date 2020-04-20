@@ -1,4 +1,4 @@
-[Home](index.html) | [Simulator](simpidemic.html) | Instructions | [Code](https://github.com/philburk/simpidemic)
+[Home](index.html) | [Simulator](simpidemic.html) | Instructions | [Model](model.md) | [Code](https://github.com/philburk/simpidemic)
 
 # How to Use the Simulator
 
