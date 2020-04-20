@@ -31,6 +31,8 @@
 // }
 
 const kInitialPopulation = 100000;
+const kChartWidth        = 1200;
+const kChartHeight       = 350;
 
 const ParameterType = Object.freeze({
     "FLOAT":1,
@@ -186,8 +188,9 @@ class RangeSlider {
     }
 
     valueToPosition(value) {
-        let range = this.slider.max - this.slider.min;
-        return range * (value / this.parameterModel.max);
+        let delta = value - this.parameterModel.min;
+        let range = this.parameterModel.max - this.parameterModel.min;
+        return Math.floor(this.slider.max * (delta / range));
     }
 
     handleEvent(event) {
@@ -333,7 +336,7 @@ class ChartMaker extends CanvasBasedWidget {
         this.canvas.style = style;
 
         this.leftMargin = 60;
-        this.rightMargin = 10;
+        this.rightMargin = 0;
         this.plotWidth = this.width - (this.leftMargin + this.rightMargin);
         this.topMargin = 10;
         this.bottomMargin = 10;
@@ -342,6 +345,7 @@ class ChartMaker extends CanvasBasedWidget {
         this.dataMax = 0;
         this.traces = [];
         this.cursor = -1;
+        this.previousRealYMax = 0.0;
 
         this.canvas.addEventListener('click', function(event) {
             let x = this.screenToRealX(event.pageX);
@@ -381,8 +385,15 @@ class ChartMaker extends CanvasBasedWidget {
         else if (normalized < 5) division = 1.0;
         let upNormalized = division * Math.floor((normalized + division) / division);
         let powerY = Math.pow(10.0, exponent);
-        realYMax = upNormalized * powerY;
-        this.divisionY = division * powerY;
+        let adjustedRealYMax = upNormalized * powerY;
+        if (adjustedRealYMax > this.previousRealYMax
+                || adjustedRealYMax <= (0.25 * this.previousRealYMax)) {
+            realYMax = adjustedRealYMax;
+            this.divisionY = division * powerY;
+            this.previousRealYMax = realYMax;
+        } else {
+            realYMax = this.previousRealYMax;
+        }
 
         this.realXMin = realXMin;
         this.realYMin = realYMin;
@@ -492,9 +503,6 @@ class ChartMaker extends CanvasBasedWidget {
         // Draw canvas border
         this.ctx.lineWidth = "1";
         this.ctx.strokeStyle = "blue";
-        this.ctx.beginPath();
-        this.ctx.rect(1, 1, this.width - 2, this.height - 2);
-        this.ctx.stroke();
 
         // Draw real border
         this.ctx.beginPath();
@@ -599,10 +607,10 @@ class VirusModel {
         //         0.0, 1.0, transmissionProbabilities);
         // this.parameters.push(this.transmissionProbabilitiesModel);
 
-        this.peakContagiousDayModel = new ParameterFloatModel("peakContagiousDay", 1.0, 21.0, 4.0);
+        this.peakContagiousDayModel = new ParameterFloatModel("peakContagiousDay", 2.0, 14.0, 4.0);
         this.parameters.push(this.peakContagiousDayModel);
 
-        this.contagiousnessModel = new ParameterFloatModel("contagiousness", 0.5, 1.5, 1.0);
+        this.contagiousnessModel = new ParameterFloatModel("contagiousness", 0.4, 1.5, 0.8);
         this.parameters.push(this.contagiousnessModel);
 
         this.infectionMortalityTreatedModel = new ParameterFloatModel("mortalityTreated", 0.0, 100.0, 3.0);
@@ -617,7 +625,7 @@ class VirusModel {
         this.treatmentDurationModel = new ParameterIntegerModel("treatmentDuration", 0, 40, 14);
         this.parameters.push(this.treatmentDurationModel);
 
-        this.immunityLossModel = new ParameterFloatModel("immunityLoss", 0.0, 5.0, 1.0);
+        this.immunityLossModel = new ParameterFloatModel("immunityLoss", 0.0, 2.0, 0.2);
         this.parameters.push(this.immunityLossModel);
     }
 
@@ -631,7 +639,7 @@ class VirusModel {
     getTransmissionProbability(day) {
         let peakDay = this.peakContagiousDayModel.getValue();
         let contagiousness = this.contagiousnessModel.getValue();
-        let dayFactor = 2.0 * day / peakDay;
+        let dayFactor = day / peakDay;
         let numerator = 4.0 * contagiousness * dayFactor;
         let denominator = peakDay * Math.exp(dayFactor);
         return numerator / denominator;
@@ -659,7 +667,7 @@ class VirusModel {
 
     getInfectionDuration() {
         let peakDay = this.peakContagiousDayModel.getValue();
-        return peakDay * 5;
+        return peakDay * 6;
     }
 }
 
@@ -716,7 +724,7 @@ class ESimUI {
     }
 
     addChart() {
-        this.chart = new ChartMaker(1000, 300, "border:2px solid #d3d3d3");
+        this.chart = new ChartMaker(kChartWidth, kChartHeight, "border:2px solid #d3d3d3");
         this.topDiv.appendChild(this.chart.getElement());
         this.infectedTrace = new ChartTrace("infected", []);
         this.chart.addTrace(this.infectedTrace);
@@ -1005,10 +1013,10 @@ class EpidemicModel {
         this.parameters.push(this.contactsPerDayModel);
         this.contactsPerDayModel.actionable = true;
 
-        this.treatmentCapacityPer100KModel = new ParameterIntegerModel("treatCapPer100K", 0, 10000, 25);
+        this.treatmentCapacityPer100KModel = new ParameterIntegerModel("treatCapPer100K", 0, 3000, 25);
         this.parameters.push(this.treatmentCapacityPer100KModel);
 
-        this.numDaysModel = new ParameterIntegerModel("numDays", 40, 600, 100);
+        this.numDaysModel = new ParameterIntegerModel("numDays", 40, 600, 200);
         this.parameters.push(this.numDaysModel);
 
         this.actionList = new ActionList();
