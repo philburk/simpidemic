@@ -25,4 +25,5 @@ let menu = new TopMenu();
 menu.add("Home", "index.html");
 menu.add("Simulator", "simpidemic.html");
 menu.add("Instructions", "howto.html");
+menu.add("Model", "model.html");
 menu.add("Code", "https://github.com/philburk/simpidemic");
