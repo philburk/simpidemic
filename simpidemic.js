@@ -673,7 +673,7 @@ class VirusModel {
 
 class CompartmentModel {
     constructor(population, infected) {
-        this.succeptible = population - infected;
+        this.susceptible = population - infected;
         this.infected = infected;
         this.inTreatment = 0; // may be infected but under infection control
         this.recovered = 0;
@@ -684,7 +684,7 @@ class CompartmentModel {
     }
 
     getPopulation() {
-        return this.succeptible + this.infected
+        return this.susceptible + this.infected
                 + this.inTreatment + this.recovered;
     }
 }
@@ -694,7 +694,7 @@ class SimulationResults {
         this.numDays = 0;
         this.infectedArray = [];
         this.recoveredArray = [];
-        this.succeptibleArray = [];
+        this.susceptibleArray = [];
         this.deadArray = [];
         this.inTreatmentArray = [];
     }
@@ -1135,11 +1135,11 @@ class EpidemicModel {
             let beginningInfection =
                     contactsPerDay
                     * dailyTransmissionRate
-                    * compartment.succeptible
+                    * compartment.susceptible
                     / population;
             //beginningInfection += this.calculateDitherOffset();
             beginningInfection = Math.max(0, Math.round(beginningInfection));
-            beginningInfection = Math.min(compartment.succeptible, beginningInfection);
+            beginningInfection = Math.min(compartment.susceptible, beginningInfection);
 
             // TODO Consider patients that die during treatment.
             // How many of those needing treatment and received treatment will die.
@@ -1162,7 +1162,7 @@ class EpidemicModel {
             // Some recovered people will lose immunity.
             let recoveredThatLoseImmunity = Math.round(immunityLoss * compartment.recovered / 100);
 
-            compartment.succeptible += recoveredThatLoseImmunity - beginningInfection;
+            compartment.susceptible += recoveredThatLoseImmunity - beginningInfection;
             compartment.recovered += endingInfection
                     + recoverAfterTreatment
                     - recoveredThatLoseImmunity;
@@ -1174,7 +1174,7 @@ class EpidemicModel {
             treatmentFIFO.unshift(beginningTreatment);
 
             // console.log("day = " + i
-            //     + ", succeptible = " + compartment.succeptible
+            //     + ", susceptible = " + compartment.susceptible
             //     + ", infected = " + compartment.infected
             //     + ", recovered = " + compartment.recovered
             //     + ", inTreatment = " + compartment.inTreatment
@@ -1182,7 +1182,7 @@ class EpidemicModel {
             //     + ", population = " + compartment.getPopulation()
             // );
             results.infectedArray.push(compartment.infected);
-            results.succeptibleArray.push(compartment.succeptible);
+            results.susceptibleArray.push(compartment.susceptible);
             results.recoveredArray.push(compartment.recovered);
             results.inTreatmentArray.push(compartment.inTreatment);
             results.deadArray.push(totalDead);

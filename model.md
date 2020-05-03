@@ -5,7 +5,7 @@
 
 This model is based on a "compartment model" that divides the current population into 4 groups:
 
-1. succeptible
+1. susceptible
 1. infected
 1. recovered (immune)
 1. in treatment
@@ -22,10 +22,10 @@ We use a value called the dailyTransmissionRate, which is the probability that a
 infected person will infect another person that they come into contact with.
 We multiply this by the number of contactsPerDay.
 Not every contact can be infected. Some people will already be infected and some people will be recovered and therefore immune.
-So we multiply by the probability that a contact will be succeptible.
-This is the number of "succeptible" people divided by the total population.
+So we multiply by the probability that a contact will be susceptible.
+This is the number of "susceptible" people divided by the total population.
 
-    newInfections = contactsPerDay * dailyTransmissionRate * succeptible / population
+    newInfections = contactsPerDay * dailyTransmissionRate * susceptible / population
     
 ## Calculating the Daily Transmission Rate
 
@@ -82,7 +82,7 @@ One reason is "antigen drift", where the virus mutates slightly and is no longer
     
 We can now modify the population:
 
-    succeptible += recoveredThatLoseImmunity - beginningInfection
+    susceptible += recoveredThatLoseImmunity - beginningInfection
     recovered += endingInfection + recoverAfterTreatment - recoveredThatLoseImmunity
     infected += beginningInfection - (endingInfection + beginningTreatment)
     inTreatment += beginningTreatment - endingTreatment
