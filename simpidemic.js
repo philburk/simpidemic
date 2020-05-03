@@ -611,10 +611,10 @@ class VirusModel {
         this.peakContagiousDayModel = new ParameterFloatModel("peakContagiousDay", 2.0, 14.0, 4.0);
         this.parameters.push(this.peakContagiousDayModel);
 
-        this.contagiousnessModel = new ParameterFloatModel("contagiousness", 0.0, 1.5, 0.8);
+        this.contagiousnessModel = new ParameterFloatModel("contagiousness", 0.1, 1.0, 0.3);
         this.parameters.push(this.contagiousnessModel);
 
-        this.infectionMortalityTreatedModel = new ParameterFloatModel("mortalityTreated", 0.0, 100.0, 3.0);
+        this.infectionMortalityTreatedModel = new ParameterFloatModel("mortalityTreated", 0.0, 100.0, 2.0);
         this.parameters.push(this.infectionMortalityTreatedModel);
 
         this.infectionMortalityUntreatedModel = new ParameterFloatModel("mortalityUntreated", 0.0, 100.0, 4.0);
@@ -635,7 +635,7 @@ class VirusModel {
     }
 
     /**
-     * Calculate transmission probability.
+     * Calculate probability of infecting one contacted person.
      */
     getTransmissionProbability(day) {
         let peakDay = this.peakContagiousDayModel.getValue();
@@ -643,7 +643,8 @@ class VirusModel {
         let dayFactor = day / peakDay;
         let numerator = 4.0 * contagiousness * dayFactor;
         let denominator = peakDay * Math.exp(dayFactor);
-        return numerator / denominator;
+        let probability = numerator / denominator;
+        return Math.min(1.0, probability);
     }
 
     getInfectionMortalityTreated() {
@@ -1019,7 +1020,7 @@ class EpidemicModel {
         this.treatmentCapacityPer100KModel = new ParameterIntegerModel("treatCapPer100K", 0, 3000, 25);
         this.parameters.push(this.treatmentCapacityPer100KModel);
 
-        this.numDaysModel = new ParameterIntegerModel("numDays", 40, 600, 200);
+        this.numDaysModel = new ParameterIntegerModel("numDays", 40, 700, 365);
         this.parameters.push(this.numDaysModel);
 
         this.actionList = new ActionList();
