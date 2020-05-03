@@ -30,7 +30,8 @@
 //     return att;
 // }
 
-const kInitialPopulation = 100000;
+const kInitialPopulation = 1000000;
+const kInitiallyInfected = 20;
 const kChartWidth        = 1200;
 const kChartHeight       = 350;
 
@@ -610,7 +611,7 @@ class VirusModel {
         this.peakContagiousDayModel = new ParameterFloatModel("peakContagiousDay", 2.0, 14.0, 4.0);
         this.parameters.push(this.peakContagiousDayModel);
 
-        this.contagiousnessModel = new ParameterFloatModel("contagiousness", 0.4, 1.5, 0.8);
+        this.contagiousnessModel = new ParameterFloatModel("contagiousness", 0.0, 1.5, 0.8);
         this.parameters.push(this.contagiousnessModel);
 
         this.infectionMortalityTreatedModel = new ParameterFloatModel("mortalityTreated", 0.0, 100.0, 3.0);
@@ -746,7 +747,9 @@ class ESimUI {
     reportDay(day) {
         let lastDay = this.epidemic.getNumDays() - 1;
         if (day < 0) day = lastDay;
-        let text = "Day " + day;
+        let text = "";
+        text += "Population = " + kInitialPopulation;
+        text += " ... Day " + day;
         text += ", infected = " + this.lastResults.infectedArray[day];
         text += ", recovered = " + this.lastResults.recoveredArray[day];
         text += ", inTreatment = " + this.lastResults.inTreatmentArray[day];
@@ -1073,7 +1076,7 @@ class EpidemicModel {
     }
 
     simulate() {
-        var compartment = new CompartmentModel(this.initialPopulation, 1);
+        var compartment = new CompartmentModel(this.initialPopulation, kInitiallyInfected);
         console.log("============ population = " + compartment.getPopulation());
         var results = new SimulationResults();
         let totalDead = 0;
@@ -1090,11 +1093,11 @@ class EpidemicModel {
         const immunityLoss = this.virus.getImmunityLoss();
 
         let infectedFIFO = [];
-        for(var i = 0; i < infectionDuration; i++) {
+        for(let i = 0; i < infectionDuration; i++) {
             infectedFIFO.push(0);
         }
         let treatmentFIFO = [];
-        for(var i = 0; i < treatmentDuration; i++) {
+        for(let i = 0; i < treatmentDuration; i++) {
             treatmentFIFO.push(0);
         }
         // most recent number of infected is at infectedFIFO[0]
@@ -1132,6 +1135,7 @@ class EpidemicModel {
                 dailyTransmissionRate += this.virus.getTransmissionProbability(infectedDay)
                         * infectedFIFO[infectedDay];
             }
+            // beginningInfection is equivalent to the term bs(t)I in the SIR model.
             let beginningInfection =
                     contactsPerDay
                     * dailyTransmissionRate
@@ -1173,9 +1177,10 @@ class EpidemicModel {
             infectedFIFO.unshift(beginningInfection);
             treatmentFIFO.unshift(beginningTreatment);
 
-            // console.log("day = " + i
+            // console.log("day = " + day
             //     + ", susceptible = " + compartment.susceptible
             //     + ", infected = " + compartment.infected
+            //     + " (" + beginningInfection + ")"
             //     + ", recovered = " + compartment.recovered
             //     + ", inTreatment = " + compartment.inTreatment
             //     + ", dieAfterTreatment = " + dieAfterTreatment
