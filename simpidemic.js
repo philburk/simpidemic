@@ -63,7 +63,14 @@ class ParameterModelBase {
     }
 
     valueToString(value) {
-        return value.toFixed(this.numericFractionalDigits);
+        let text = value.toFixed(this.numericFractionalDigits);
+        // prepend spaces until right justified
+        let spacesNeeded = this.numericWidth - text.length;
+        while (spacesNeeded > 0) {
+            text = "&nbsp;" + text;
+            spacesNeeded--;
+        }
+        return text;
     }
 
     fireListeners() {
@@ -611,7 +618,7 @@ class VirusModel {
         this.peakContagiousDayModel = new ParameterFloatModel("peakContagiousDay", 2.0, 14.0, 4.0);
         this.parameters.push(this.peakContagiousDayModel);
 
-        this.contagiousnessModel = new ParameterFloatModel("contagiousness", 0.1, 1.0, 0.3);
+        this.contagiousnessModel = new ParameterFloatModel("contagiousness", 0.01, 1.00, 0.20);
         this.parameters.push(this.contagiousnessModel);
 
         this.infectionMortalityTreatedModel = new ParameterFloatModel("mortalityTreated", 0.0, 100.0, 2.0);
@@ -641,7 +648,7 @@ class VirusModel {
         let peakDay = this.peakContagiousDayModel.getValue();
         let contagiousness = this.contagiousnessModel.getValue();
         let dayFactor = day / peakDay;
-        let numerator = 4.0 * contagiousness * dayFactor;
+        let numerator = contagiousness * dayFactor;
         let denominator = peakDay * Math.exp(dayFactor);
         let probability = numerator / denominator;
         return Math.min(1.0, probability);
@@ -1013,7 +1020,7 @@ class EpidemicModel {
         this.virus = new VirusModel();
         this.parameters = [];
 
-        this.contactsPerDayModel = new ParameterFloatModel("contactsPerDay", 0.1, 4.0, 2.0);
+        this.contactsPerDayModel = new ParameterFloatModel("contactsPerDay", 0.1, 30.0, 15.0);
         this.parameters.push(this.contactsPerDayModel);
         this.contactsPerDayModel.actionable = true;
 
