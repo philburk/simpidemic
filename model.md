@@ -45,7 +45,7 @@ To calculate the probability of transmission for any given day for one person we
     
 You can experiment with this equation using the [Desmos online graphing calculator](https://www.desmos.com/calculator/lnrfyrbej8).
 
-To calculate the dailyTransmissionRate we need to add up the probability of each infected persion based on how many days they have been infected.
+To calculate the dailyTransmissionRate we need to add up the probability of each infected person based on how many days they have been infected.
 
     dailyTransmissionRate = sum(probability(day) * numberInfectedFor(day))
     
