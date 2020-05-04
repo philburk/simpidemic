@@ -16,10 +16,11 @@ Then it moves forward one day at a time and calculates changes in those those fo
 To see the details of the calculation look for the "simulate()" function
 in the [simulator.js](https://github.com/philburk/simpidemic/blob/master/simpidemic.js) file.
 
-## How many are Infected Each Day?
+## How Many Become Infected Each Day?
 
 We use a value called the dailyTransmissionRate, which is the probability that an
-infected person will infect another person that they come into contact with.
+infected person will infect another person that they come into contact with,
+times the number of infected people.
 We multiply this by the number of contactsPerDay.
 Not every contact can be infected. Some people will already be infected and some people will be recovered and therefore immune.
 So we multiply by the probability that a contact will be susceptible.
@@ -40,7 +41,7 @@ To calculate the probability of transmission for any given day for one person we
     p = peakContagiousDay
     x = day
     
-    probability = 4 * c * (x / p) / (p * exp(x / p))
+    probability = c * (x / p) / (p * exp(x / p))
     
 You can experiment with this equation using the [Desmos online graphing calculator](https://www.desmos.com/calculator/lnrfyrbej8).
 
@@ -106,9 +107,3 @@ Also different areas have higher proportions of older people. Compare Florida vs
 Some sophisticated models track individuals in a population.
 That is more realistic because every person has their own trajectory.
 But it can take a lot more time to calculate those kinds of models and I wanted this model to respond in real-time.
-
-
-
-    
-
- 
