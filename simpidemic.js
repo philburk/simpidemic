@@ -34,6 +34,10 @@ const kInitialPopulation = 1000000;
 const kInitiallyInfected = 20;
 const kChartWidth        = 1200;
 const kChartHeight       = 350;
+const kVersionNumber     = 10000; // 1.0.0
+
+const kActionDayCodePrefix   = "ad";
+const kActionValueCodePrefix = "av";
 
 const ParameterType = Object.freeze({
     "FLOAT":1,
@@ -42,11 +46,12 @@ const ParameterType = Object.freeze({
 });
 
 class ParameterModelBase {
-    constructor(name, min, max) {
+    constructor(name, code, min, max) {
         this.name = name;
         this.min = min;
         this.max = max;
         this.listeners = [];
+        this.code = code;
 
         let significantDigits = 4;
         this.numericWidth = significantDigits;
@@ -58,12 +63,47 @@ class ParameterModelBase {
         this.actionable = false; // Can this be an action item.
     }
 
+    addSearchParam(params) {
+        params.append(this.code, this.getValueString());
+    }
+
+    applySearchParam(params) {
+        if (params.has(this.code)) {
+            let textValue = params.get(this.code);
+            let value = parseFloat(textValue);
+            this.setValue(value);
+        }
+    }
+
     getName() {
         return this.name;
     }
 
+    getCode() {
+        return this.code;
+    }
+
+    getRawValue() {
+        return -1; // override!
+    }
+    getValue() {
+        return -1; // override!
+    }
+
+    getValueString() {
+        return this.valueToString(this.getRawValue());
+    }
+
+    getValueStringAligned() {
+        let text = this.valueToString(this.getRawValue());
+        return this.alignValueString(text);
+    }
+
     valueToString(value) {
-        let text = value.toFixed(this.numericFractionalDigits);
+        return value.toFixed(this.numericFractionalDigits);
+    }
+
+    alignValueString(text) {
         // prepend spaces until right justified
         let spacesNeeded = this.numericWidth - text.length;
         while (spacesNeeded > 0) {
@@ -86,25 +126,31 @@ class ParameterModelBase {
 }
 
 class ParameterFloatModel extends ParameterModelBase {
-    constructor(name, min, max, value) {
-        super(name, min, max);
+    constructor(name, code, min, max, value) {
+        super(name, code, min, max);
         this.value = value;
     }
 
     makeCopy() {
-        return new ParameterFloatModel(this.name, this.min, this.max, this.value);
+        return new ParameterFloatModel(this.name, this.code, this.min, this.max, this.value);
     }
 
     getType() {
         return ParameterType.FLOAT;
     }
 
-    getValueString() {
-        return this.valueToString(this.value);
+    getRawValue() {
+        return this.value;
+    }
+
+    getQuantizedValue() {
+        return parseFloat(this.getValueString());
     }
 
     getValue() {
-        return this.value;
+        // Use quantized value so that models loaded from a URL query
+        // reproducible.
+        return this.getQuantizedValue();
     }
 
     setValue(value) {
@@ -114,13 +160,13 @@ class ParameterFloatModel extends ParameterModelBase {
 }
 
 class ParameterIntegerModel extends ParameterFloatModel {
-    constructor(name, min, max, value) {
-        super(name, min, max);
+    constructor(name, code, min, max, value) {
+        super(name, code, min, max);
         this.value = Math.round(value);
     }
 
     makeCopy() {
-        return new ParameterIntegerModel(this.name, this.min, this.max, this.value);
+        return new ParameterIntegerModel(this.name, this.code, this.min, this.max, this.value);
     }
 
     valueToString(value) {
@@ -183,6 +229,7 @@ class RangeSlider {
         this.addEventListener("input", this);
 
         this.updateValueText();
+        parameterModel.addListener(this);
     }
 
     addEventListener(type, listener) {
@@ -208,7 +255,7 @@ class RangeSlider {
     }
 
     updateValueText() {
-        this.numericElement.innerHTML = this.parameterModel.getValueString();
+        this.numericElement.innerHTML = this.parameterModel.getValueStringAligned();
     }
 
     getElement() {
@@ -222,6 +269,14 @@ class RangeSlider {
     setEnabled(enabled) {
         this.slider.disabled = !enabled;
     }
+
+    // Parameter listener methods.
+    onChange(model) {
+        if (!this.updating) {
+            this.updateValueText();
+        }
+    }
+
 }
 
 class CanvasBasedWidget {
@@ -549,16 +604,33 @@ class ActionModel {
 
     constructor(day, model) {
         this.day = day;
-        this.model = model;
+        this.parameterModel = model;
         this.active = true;
     }
 
     get name() {
-        return this.model.getName();
+        return this.parameterModel.getName();
+    }
+
+    get model() {
+        return this.parameterModel;
+    }
+
+    set model(model) {
+        this.parameterModel = model;
     }
 
     get value() {
-        return this.model.getValue();
+        return this.parameterModel.getValue();
+    }
+
+    addSearchParam(params) {
+        let modelCode = this.parameterModel.getCode();
+        let dayCode = kActionDayCodePrefix + modelCode;
+        let valueCode = kActionValueCodePrefix + modelCode;
+        let valueString = this.parameterModel.getValueString();
+        params.append(dayCode, this.day);
+        params.append(valueCode, valueString);
     }
 }
 
@@ -591,10 +663,9 @@ class ActionList {
     }
 
     /**
-    * TODO remove, unused
      * @return array containing every ActionModel
      */
-    getAllActions(day) {
+    getAllActions() {
        let allActions = [];
        for (var day in this.days) {
            let dailyActions = this.days[day];
@@ -615,25 +686,25 @@ class VirusModel {
         //         0.0, 1.0, transmissionProbabilities);
         // this.parameters.push(this.transmissionProbabilitiesModel);
 
-        this.peakContagiousDayModel = new ParameterFloatModel("peakContagiousDay", 2.0, 14.0, 4.0);
+        this.peakContagiousDayModel = new ParameterFloatModel("peakContagiousDay", "pcd", 2.0, 14.0, 4.0);
         this.parameters.push(this.peakContagiousDayModel);
 
-        this.contagiousnessModel = new ParameterFloatModel("contagiousness", 0.01, 1.00, 0.20);
+        this.contagiousnessModel = new ParameterFloatModel("contagiousness", "ctg", 0.01, 1.00, 0.20);
         this.parameters.push(this.contagiousnessModel);
 
-        this.infectionMortalityTreatedModel = new ParameterFloatModel("mortalityTreated", 0.0, 100.0, 2.0);
+        this.infectionMortalityTreatedModel = new ParameterFloatModel("mortalityTreated", "mtr", 0.0, 100.0, 2.0);
         this.parameters.push(this.infectionMortalityTreatedModel);
 
-        this.infectionMortalityUntreatedModel = new ParameterFloatModel("mortalityUntreated", 0.0, 100.0, 4.0);
+        this.infectionMortalityUntreatedModel = new ParameterFloatModel("mortalityUntreated", "mut", 0.0, 100.0, 4.0);
         this.parameters.push(this.infectionMortalityUntreatedModel);
 
-        this.dayTreatmentBeginsModel = new ParameterIntegerModel("dayTreatmentBegins", 0, 21, 7);
+        this.dayTreatmentBeginsModel = new ParameterIntegerModel("dayTreatmentBegins", "dtb", 0, 21, 7);
         this.parameters.push(this.dayTreatmentBeginsModel);
 
-        this.treatmentDurationModel = new ParameterIntegerModel("treatmentDuration", 0, 40, 14);
+        this.treatmentDurationModel = new ParameterIntegerModel("treatmentDuration", "tdr", 0, 40, 14);
         this.parameters.push(this.treatmentDurationModel);
 
-        this.immunityLossModel = new ParameterFloatModel("immunityLoss", 0.0, 2.0, 0.2);
+        this.immunityLossModel = new ParameterFloatModel("immunityLoss", "iml", 0.0, 2.0, 0.2);
         this.parameters.push(this.immunityLossModel);
     }
 
@@ -730,6 +801,7 @@ class ESimUI {
         this.dailyReportElement = this.appendParagraph("Day - click on chart to see details for a given day.");
         this.addChart();
         this.cursorDay = -1;
+        this.updating = false;
     }
 
     addChart() {
@@ -921,8 +993,46 @@ class ESimUI {
         }
     }
 
+    getCleanURI() {
+        let uri = window.location.toString();
+        if (uri.indexOf("?") > 0) {
+            uri = uri.substring(0, uri.indexOf("?"));
+        }
+        return uri;
+    }
+
+    addResetButton(div) {
+        let button = document.createElement("input");
+        button.setAttribute("type", "button");
+        button.value = "Reset";
+        button.gui = this;
+        button.onclick = function() {
+            let cleanURI = this.gui.getCleanURI();
+            window.location.assign(cleanURI);
+        };
+        div.appendChild(button);
+    }
+
+    addUpdateURLButton(div) {
+        let button = document.createElement("input");
+        button.setAttribute("type", "button");
+        button.value = "Update URL";
+        button.gui = this;
+        button.onclick = function() {
+            let params = this.gui.epidemic.getSearchParams();
+            let cleanURI = this.gui.getCleanURI();
+            let newURI = cleanURI + "?" + params;
+            console.log("newURI = " + newURI);
+            //window.location.assign(newURI);
+            window.history.replaceState({}, document.title, newURI);
+        };
+        div.appendChild(button);
+    }
+
     createActionEditor() {
         this.actionEditorDiv = document.createElement("DIV");
+        this.addResetButton(this.actionEditorDiv);
+        this.addUpdateURLButton(this.actionEditorDiv);
         let actionNames = this.epidemic.getActionNames();
         this.actionHelp = document.createElement("P");
         this.actionHelp.innerHTML = "Click on the chart to specify a day for action."
@@ -977,9 +1087,26 @@ class ESimUI {
         this.topDiv.appendChild(table);
     }
 
+    isUpdating() {
+        return this.updating;
+    }
+
+    setUpdating(updating) {
+        this.updating = updating;
+        this.refreshIfUpdating();
+    }
+
+    refreshIfUpdating() {
+        if (!this.isUpdating()) {
+            this.refresh();
+        }
+    }
+
     // Parameter listener methods.
     onChange(model) {
-        this.refresh();
+        if (!this.updating) {
+            this.refresh();
+        }
     }
 
     refresh() {
@@ -1011,6 +1138,28 @@ class ESimUI {
     getCanvas() {
         return this.canvas;
     }
+
+    applySearchParams(params) {
+        let actionableModels = this.epidemic.actionableModels;
+        for (let i = 0; i < actionableModels.length; i++) {
+            let actionableModel = actionableModels[i];
+            let modelCode = actionableModel.getCode();
+            let dayCode = kActionDayCodePrefix + modelCode;
+            if (params.has(dayCode)) {
+                let valueCode = kActionValueCodePrefix + modelCode;
+                let dayArray = params.getAll(dayCode);
+                let valueArray = params.getAll(valueCode);
+                for (let dayIndex = 0; dayIndex < dayArray.length; dayIndex++) {
+                    let day = parseFloat(dayArray[dayIndex]);
+                    let value = parseFloat(valueArray[dayIndex]);
+                    let actionModel = this.epidemic.addActionModel(day, i);
+                    actionModel.model.setValue(value);
+                    this.addActionModelEditor(actionModel);
+                    this.refresh();
+                }
+            }
+        }
+    }
 }
 
 class EpidemicModel {
@@ -1020,18 +1169,48 @@ class EpidemicModel {
         this.virus = new VirusModel();
         this.parameters = [];
 
-        this.contactsPerDayModel = new ParameterFloatModel("contactsPerDay", 0.1, 30.0, 15.0);
+        this.contactsPerDayModel = new ParameterFloatModel("contactsPerDay", "cpd", 0.1, 30.0, 15.0);
         this.parameters.push(this.contactsPerDayModel);
         this.contactsPerDayModel.actionable = true;
 
-        this.treatmentCapacityPer100KModel = new ParameterIntegerModel("treatCapPer100K", 0, 3000, 25);
+        this.treatmentCapacityPer100KModel = new ParameterIntegerModel("treatCapPer100K", "tpk", 0, 3000, 25);
         this.parameters.push(this.treatmentCapacityPer100KModel);
 
-        this.numDaysModel = new ParameterIntegerModel("numDays", 40, 700, 365);
+        this.numDaysModel = new ParameterIntegerModel("numDays", "nds", 40, 700, 365);
         this.parameters.push(this.numDaysModel);
 
         this.actionList = new ActionList();
         this.actionableModels = [this.contactsPerDayModel, this.treatmentCapacityPer100KModel];
+    }
+
+    addSearchParamsFromModels(params, models) {
+        params.set("ver", kVersionNumber);
+        var i = 0, length = models.length;
+        for (; i < length; i++) {
+            let model = models[i];
+            model.addSearchParam(params);
+        }
+    }
+
+    getSearchParams() {
+        var params = new URLSearchParams("");
+        this.addSearchParamsFromModels(params, this.getGeneralParameterModels());
+        this.addSearchParamsFromModels(params, this.getVirusParameterModels());
+        this.addSearchParamsFromModels(params, this.actionList.getAllActions());
+        return params;
+    }
+
+    applySearchParamsToModels(params, models) {
+        var i = 0, length = models.length;
+        for (; i < length; i++) {
+            let model = models[i];
+            model.applySearchParam(params);
+        }
+    }
+
+    applySearchParams(params) {
+        this.applySearchParamsToModels(params, this.getGeneralParameterModels());
+        this.applySearchParamsToModels(params, this.getVirusParameterModels());
     }
 
     getGeneralParameterModels() {
@@ -1210,5 +1389,12 @@ class EpidemicSimulator {
         this.epidemic = new EpidemicModel();
         this.simUI = new ESimUI(this.epidemic, topDiv);
         this.simUI.refresh();
+    }
+
+    applySearchParams(params) {
+        this.simUI.setUpdating(true);
+        this.epidemic.applySearchParams(params);
+        this.simUI.applySearchParams(params);
+        this.simUI.setUpdating(false);
     }
 }
