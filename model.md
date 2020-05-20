@@ -92,13 +92,13 @@ The dead are removed from the population:
 
     totalDead += dieAfterTreatment + dieForLackOfTreatment
 
-## Why the Model is Not Realistic
+## How this Model can be Improved
 
 This model is just a crude simulation. There are many areas where this model could be improved.
 
-Differrent places have different outcomes. New York is more dense than Wyoming.
+Different places have different outcomes. New York is more dense than Wyoming.
 That will increase the contactsPerDay.
-Better models will use multiple "compartments" to simulate different geographic areas.
+Better models will use multiple sub-models to simulate different geographic areas.
 
 Age is also a factor.
 Older people, for example, are more likely to die from COVID-19 than younger people.
