@@ -413,6 +413,7 @@ class ChartMaker extends CanvasBasedWidget {
         this.traces = [];
         this.cursor = -1;
         this.previousRealYMax = 0.0;
+        this.logarithmic = false;
 
         this.canvas.addEventListener('click', function(event) {
             let x = this.screenToRealX(event.pageX);
@@ -435,8 +436,21 @@ class ChartMaker extends CanvasBasedWidget {
         return this.leftMargin + ((realX - this.realXMin) * this.xScaler);
     }
 
-    realToPlotY(realY) {
+    realToPlotYLogarithmic(realY) {
+        let offset = 0;
+        if (realY >= this.minYLog) {
+            let log10Y = Math.log(realY / this.minYLog) / Math.log(10);
+            offset = log10Y * this.yScalerLog;
+        }
+        return (this.height - this.bottomMargin) - offset;
+    }
+
+    realToPlotYLinear(realY) {
         return (this.height - this.bottomMargin) - ((realY - this.realYMin) * this.yScaler);
+    }
+
+    realToPlotY(realY) {
+        return this.logarithmic ? this.realToPlotYLogarithmic(realY) : this.realToPlotYLinear(realY);
     }
 
     setRealBounds(realXMin, realXMax, realYMin, realYMax) {
@@ -470,6 +484,10 @@ class ChartMaker extends CanvasBasedWidget {
         this.realYRange = realYMax - realYMin;
         this.xScaler = this.plotWidth / this.realXRange;
         this.yScaler = this.plotHeight / this.realYRange;
+
+        this.minYLog = Math.max(this.realYMax / 100000.0, this.realYMin);
+        let logYRange = Math.log(this.realYMax / this.minYLog) / Math.log(10);
+        this.yScalerLog = this.plotHeight / logYRange;
     }
 
     getElement() {
@@ -490,6 +508,10 @@ class ChartMaker extends CanvasBasedWidget {
 
     setDataMax(dataMax) {
         this.dataMax = dataMax;
+    }
+
+    setLogarithmic(enabled) {
+        this.logarithmic = enabled;
     }
 
     addClickListener(listener) {
@@ -536,12 +558,31 @@ class ChartMaker extends CanvasBasedWidget {
         this.ctx.fillText("" + realY, x2 - 3, y);
     }
 
-    drawYAxis() {
+    drawYAxisLinear() {
         let numTicks = 1 + (this.realYRange / this.divisionY);
         for (let i = 0; i < numTicks; i++) {
             let tickY = this.realYMin + (i * this.divisionY);
             this.drawYTick(tickY);
         }
+    }
+
+    drawYAxisLogarithmic() {
+        this.drawYTick(this.realYMax);
+        let logYMaxRound = Math.round(Math.log(this.realYMax) / Math.log(10));
+        let yMaxRound10 = Math.pow(10.0, logYMaxRound);
+        if ((this.realYMax / yMaxRound10) > 2.0) {
+            this.drawYTick(yMaxRound10);
+        }
+        let yTick = Math.round(yMaxRound10 / 10.0);
+        let lowestYTick = Math.max(this.realYMin, 10.0);
+        while (yTick >= lowestYTick) {
+            this.drawYTick(yTick);
+            yTick = Math.round(yTick / 10.0);
+        }
+    }
+
+    drawYAxis() {
+        this.logarithmic ? this.drawYAxisLogarithmic() : this.drawYAxisLinear();
     }
 
     drawTrace(chartTrace) {
@@ -826,6 +867,7 @@ class ESimUI {
         this.inTreatmentTrace.style = "blue";
 
         this.chart.setDataMax(this.epidemic.getInitialPopulation());
+        this.chart.setLogarithmic(true);
         this.chart.addClickListener(this);
     }
 
@@ -1037,10 +1079,31 @@ class ESimUI {
         div.appendChild(button);
     }
 
+    // Reset by removing query part of URL and using the defaults
+    addLogCheckbox(div) {
+        let button = document.createElement("input");
+        button.setAttribute("type", "checkbox");
+        button.value = "Logarithmic";
+        button.gui = this;
+        button.checked = true;
+        button.onclick = function() {
+            let checked = this.checked;
+            this.gui.chart.setLogarithmic(checked);
+            this.gui.redrawChart();
+        };
+        div.appendChild(button);
+        // creating label for checkbox
+        var label = document.createElement('label');
+        label.htmlFor = "id";
+        label.appendChild(document.createTextNode('Logarithmic'));
+        div.appendChild(label);
+    }
+
     createActionEditor() {
         this.actionEditorDiv = document.createElement("DIV");
         this.addResetButton(this.actionEditorDiv);
         this.addUpdateURLButton(this.actionEditorDiv);
+        this.addLogCheckbox(this.actionEditorDiv);
         let actionNames = this.epidemic.getActionNames();
         this.actionHelp = document.createElement("P");
         this.actionHelp.innerHTML = "Click on the chart to specify a day for action."
