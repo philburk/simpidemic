@@ -30,7 +30,7 @@
 //     return att;
 // }
 
-const kVersionNumber     = 10000; // 1.0.0
+const kVersionNumber     = 10001; // 1.0.1
 
 const kInitialPopulation = 1000000;
 const kInitiallyInfected = 20;
