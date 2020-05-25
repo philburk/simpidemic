@@ -1308,6 +1308,10 @@ class EpidemicModel {
         return 0.5 * (Math.random() + Math.random() - 1.0);
     }
 
+    ditherRound(value) {
+        return Math.round(value + this.calculateDitherOffset());
+    }
+
     // Actions ========================
     getActionNames() {
         let names = [];
@@ -1399,20 +1403,19 @@ class EpidemicModel {
                     * dailyTransmissionRate
                     * compartment.susceptible
                     / population;
-            //beginningInfection += this.calculateDitherOffset();
-            beginningInfection = Math.max(0, Math.round(beginningInfection));
+            beginningInfection = Math.max(0, this.ditherRound(beginningInfection));
             beginningInfection = Math.min(compartment.susceptible, beginningInfection);
 
             // TODO Consider patients that die during treatment.
             // How many of those needing treatment and received treatment will die.
             // Avoid dividing by zero.
             const denominator = Math.max(0.000001, infectionMortalityUntreated);
-            let dieAfterTreatment = Math.round(endingTreatment * infectionMortalityTreated / denominator);
+            let dieAfterTreatment = this.ditherRound(endingTreatment * infectionMortalityTreated / denominator);
             dieAfterTreatment = Math.min(endingTreatment, dieAfterTreatment);
             const recoverAfterTreatment = endingTreatment - dieAfterTreatment;
 
             // Only treat those who would die if untreated.
-            const needingBeginTreatment = Math.round(infectedFIFO[dayTreatmentBegins] * infectionMortalityUntreated / 100);
+            const needingBeginTreatment = this.ditherRound(infectedFIFO[dayTreatmentBegins] * infectionMortalityUntreated / 100);
             const treatmentAvailable = Math.max(0, treatmentCapacity - compartment.inTreatment);
             const beginningTreatment = Math.min(needingBeginTreatment, treatmentAvailable);
             // Remove treated from infected FIFO so we do not double count them.
@@ -1422,7 +1425,8 @@ class EpidemicModel {
             const dieForLackOfTreatment = needingBeginTreatment - beginningTreatment;
 
             // Some recovered people will lose immunity.
-            let recoveredThatLoseImmunity = Math.round(immunityLoss * compartment.recovered / 100);
+            let recoveredThatLoseImmunity = immunityLoss * compartment.recovered / 100;
+            recoveredThatLoseImmunity = this.ditherRound(recoveredThatLoseImmunity);
 
             compartment.susceptible += recoveredThatLoseImmunity - beginningInfection;
             compartment.recovered += endingInfection
