@@ -1063,10 +1063,10 @@ class ESimUI {
 
     // Encode current state in a URL and go to that URL.
     // This allows one to click back to previous states.
-    addUpdateURLButton(div) {
+    addSaveToURLButton(div) {
         let button = document.createElement("input");
         button.setAttribute("type", "button");
-        button.value = "Update URL";
+        button.value = "Save to URL";
         button.gui = this;
         button.onclick = function() {
             let searchParams = this.gui.epidemic.getSearchParams();
@@ -1102,7 +1102,7 @@ class ESimUI {
     createActionEditor() {
         this.actionEditorDiv = document.createElement("DIV");
         this.addResetButton(this.actionEditorDiv);
-        this.addUpdateURLButton(this.actionEditorDiv);
+        this.addSaveToURLButton(this.actionEditorDiv);
         this.addLogCheckbox(this.actionEditorDiv);
         let actionNames = this.epidemic.getActionNames();
         this.actionHelp = document.createElement("P");
