@@ -877,9 +877,9 @@ class ESimUI {
         let text = "";
         text += "Population = " + kInitialPopulation;
         text += " ... Day " + day;
-        text += ", infected = " + this.lastResults.infectedArray[day];
-        text += ", recovered = " + this.lastResults.recoveredArray[day];
-        text += ", inTreatment = " + this.lastResults.inTreatmentArray[day];
+        text += ", <span style = 'color:#FF0000;'>infected = " + this.lastResults.infectedArray[day] + "</span>";
+        text += ", <span style = 'color:#00C000;'>recovered = " + this.lastResults.recoveredArray[day] + "</span>";
+        text += ", <span style = 'color:#0000E0;'>inTreatment = " + this.lastResults.inTreatmentArray[day] + "</span>";
         text += ", dead = " + this.lastResults.deadArray[day];
         if (day != lastDay) {
             text += " ... Day " + lastDay;
