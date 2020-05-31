@@ -1254,7 +1254,7 @@ class EpidemicModel {
         this.treatmentCapacityPer100KModel = new ParameterIntegerModel("treatCapPer100K", "tpk", 0, 3000, 25);
         this.parameters.push(this.treatmentCapacityPer100KModel);
 
-        this.numDaysModel = new ParameterIntegerModel("numDays", "nds", 40, 700, 365);
+        this.numDaysModel = new ParameterIntegerModel("numDays", "nds", 40, 1000, 365);
         this.parameters.push(this.numDaysModel);
 
         this.actionList = new ActionList();
