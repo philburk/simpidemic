@@ -230,14 +230,12 @@ class RangeSlider {
         slider.max = 10000;
         slider.value = this.valueToPosition(parameterModel.getValue());
         slider.class = "slider";
-        this.addEventListener("input", this);
+        this.slider.addEventListener("input", this); // will call handleEvent()
+
+        this.updatingModelFromSlider = false;
 
         this.updateValueText();
-        parameterModel.addListener(this);
-    }
-
-    addEventListener(type, listener) {
-        this.slider.addEventListener(type, listener);
+        parameterModel.addListener(this); // will call onChange()
     }
 
     positionToValue(position) {
@@ -250,12 +248,6 @@ class RangeSlider {
         let delta = value - this.parameterModel.min;
         let range = this.parameterModel.max - this.parameterModel.min;
         return Math.floor(this.slider.max * (delta / range));
-    }
-
-    handleEvent(event) {
-        let value = this.positionToValue(this.slider.value);
-        this.parameterModel.setValue(value);
-        this.updateValueText();
     }
 
     updateValueText() {
@@ -274,13 +266,23 @@ class RangeSlider {
         this.slider.disabled = !enabled;
     }
 
-    // Parameter listener methods.
-    onChange(model) {
-        if (!this.updating) {
-            this.updateValueText();
-        }
+    // implement Javascript API for the slider listener
+    handleEvent(event) {
+        let value = this.positionToValue(this.slider.value);
+        this.updatingModelFromSlider = true;
+        this.parameterModel.setValue(value);
+        this.updatingModelFromSlider = false;
     }
 
+    // implement ParameterModelBase listener
+    onChange(model) {
+        this.updateValueText();
+        if (!this.updatingModelFromSlider) {
+            let position = this.valueToPosition(this.parameterModel.getValue());
+            // assume this does not trigger a handleEvent() call
+            this.slider.value = position;
+        }
+    }
 }
 
 class CanvasBasedWidget {
