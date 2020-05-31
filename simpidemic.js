@@ -30,7 +30,7 @@
 //     return att;
 // }
 
-const kVersionNumber     = 10001; // 1.0.1
+const kVersionNumber     = 10002; // 1.0.2
 
 const kInitialPopulation = 1000000;
 const kInitiallyInfected = 20;
@@ -799,32 +799,39 @@ class VirusModel {
 
 class CompartmentModel {
     constructor(population, infected) {
+        // Each person is in one and only one of these compartments.
         this.susceptible = population - infected;
         this.infected = infected;
         this.inTreatment = 0; // may be infected but under infection control
         this.recovered = 0;
+        this.dead = 0;
     }
 
     getInfected() {
         return this.infected;
     }
 
-    getPopulation() {
+    getLiving() {
         return this.susceptible + this.infected
                 + this.inTreatment + this.recovered;
+    }
+
+    getTotal() {
+        return this.getLiving() + this.dead;
     }
 }
 
 class SimulationResults {
     constructor() {
         this.numDays = 0;
+        this.susceptibleArray = [];
         this.infectedArray = [];
         this.recoveredArray = [];
-        this.susceptibleArray = [];
-        this.deadArray = [];
         this.inTreatmentArray = [];
+        this.deadArray = [];
     }
 }
+
 /*
 class SliderListener {
     constructor(esimUI, model) {
@@ -1339,9 +1346,7 @@ class EpidemicModel {
 
     simulate() {
         var compartment = new CompartmentModel(this.initialPopulation, kInitiallyInfected);
-        console.log("============ population = " + compartment.getPopulation());
         var results = new SimulationResults();
-        let totalDead = 0;
         // Get initial parameters from models.
         const numDays = this.numDaysModel.getValue();
         const infectionDuration = this.virus.getInfectionDuration();
@@ -1358,14 +1363,19 @@ class EpidemicModel {
         for(let i = 0; i < infectionDuration; i++) {
             infectedFIFO.push(0);
         }
+        infectedFIFO.unshift(compartment.getInfected());
+
         let treatmentFIFO = [];
         for(let i = 0; i < treatmentDuration; i++) {
             treatmentFIFO.push(0);
         }
-        // most recent number of infected is at infectedFIFO[0]
-        infectedFIFO.unshift(compartment.getInfected());
         treatmentFIFO.unshift(0);
+
+        // most recent number of infected is at infectedFIFO[0]
         for (var day = 0; day < numDays; day++) {
+            // if (day == 17) {
+            //     console.log("break");
+            // }
             // Apply actions for the day.
             let dailyActions = this.actionList.getDailyActions(day);
             if (dailyActions != undefined) {
@@ -1384,8 +1394,6 @@ class EpidemicModel {
                 }
             }
 
-            // Population changes due to deaths.
-            const population = compartment.getPopulation();
             const endingInfection = infectedFIFO.pop();
             const endingTreatment = treatmentFIFO.pop();
 
@@ -1402,7 +1410,7 @@ class EpidemicModel {
                     contactsPerDay
                     * dailyTransmissionRate
                     * compartment.susceptible
-                    / population;
+                    / compartment.getTotal();
             beginningInfection = Math.max(0, this.ditherRound(beginningInfection));
             beginningInfection = Math.min(compartment.susceptible, beginningInfection);
 
@@ -1419,7 +1427,7 @@ class EpidemicModel {
             const treatmentAvailable = Math.max(0, treatmentCapacity - compartment.inTreatment);
             const beginningTreatment = Math.min(needingBeginTreatment, treatmentAvailable);
             // Remove treated from infected FIFO so we do not double count them.
-            infectedFIFO[dayTreatmentBegins] -= beginningTreatment;
+            infectedFIFO[dayTreatmentBegins] -= needingBeginTreatment;
 
             // How many will die immediately because of no treatment.
             const dieForLackOfTreatment = needingBeginTreatment - beginningTreatment;
@@ -1432,10 +1440,10 @@ class EpidemicModel {
             compartment.recovered += endingInfection
                     + recoverAfterTreatment
                     - recoveredThatLoseImmunity;
-            compartment.infected += beginningInfection - (endingInfection + beginningTreatment);
+            compartment.infected += beginningInfection - (endingInfection + needingBeginTreatment);
             compartment.inTreatment += beginningTreatment - endingTreatment;
+            compartment.dead += dieAfterTreatment + dieForLackOfTreatment;
 
-            totalDead += dieAfterTreatment + dieForLackOfTreatment;
             infectedFIFO.unshift(beginningInfection);
             treatmentFIFO.unshift(beginningTreatment);
 
@@ -1446,13 +1454,30 @@ class EpidemicModel {
             //     + ", recovered = " + compartment.recovered
             //     + ", inTreatment = " + compartment.inTreatment
             //     + ", dieAfterTreatment = " + dieAfterTreatment
-            //     + ", population = " + compartment.getPopulation()
+            //     + ", dead = " + compartment.dead
+            //     + " (" + (dieAfterTreatment + dieForLackOfTreatment) + ")"
+            //     + ", living = " + compartment.getLiving()
             // );
+
             results.infectedArray.push(compartment.infected);
             results.susceptibleArray.push(compartment.susceptible);
             results.recoveredArray.push(compartment.recovered);
             results.inTreatmentArray.push(compartment.inTreatment);
-            results.deadArray.push(totalDead);
+            results.deadArray.push(compartment.dead);
+
+            // Check validity
+            let infectedFifoSum = 0;
+            for(let i = 0; i < infectedFIFO.length; i++) {
+                infectedFifoSum += infectedFIFO[i];
+            }
+            if (compartment.getInfected() != infectedFifoSum) {
+                alert("ERROR: infectedFifoSum is " + infectedFifoSum
+                        + ", should be " + compartment.getIfected());
+            }
+            if (compartment.getTotal() != this.initialPopulation) {
+                alert("ERROR: total population is " + compartment.getTotal()
+                        + ", should be " + this.initialPopulation);
+            }
         }
         results.numDays = numDays;
         return results;
