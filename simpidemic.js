@@ -32,6 +32,7 @@ const kVersionNumber     = 10002; // 1.0.2
 
 const kInitialPopulation = 1000000;
 const kInitiallyInfected = 20;
+const kInfectionDurationFactor = 3; // how many days times peak
 const kChartWidth        = 1200;
 const kChartHeight       = 350;
 
@@ -43,6 +44,10 @@ const ParameterType = Object.freeze({
     "INTEGER":2,
     "ARRAY":3
 });
+
+class ParameterModelListener {
+    onChange(ParameterModelBase) {}
+}
 
 class ParameterModelBase {
     /**
@@ -723,6 +728,62 @@ class ActionList {
    }
 }
 
+// Normalized distribution with an integer number of precalculated bins
+class NormalizedDistribution {
+    constructor(numBins) {
+        this.numBins = numBins;
+    }
+
+    getNumBins() {
+        return this.numBins;
+    }
+
+    getProbability(binIndex) {
+        return this.bins[binIndex];
+    }
+
+    // override this in subclasses
+    calculateBin(binIndex) {
+        return 1.0;
+    }
+
+    // internal
+    getSumBins() {
+        let sum = 0.0;
+        for (let i = 0; i < this.getNumBins(); i++) {
+            sum += this.getProbability(i);
+        }
+        return sum;
+    }
+
+    // internal
+    normalizeBins() {
+        this.bins = [];
+        for (let i = 0; i < this.numBins; i++) {
+            this.bins.push(this.calculateBin(i));
+        }
+        let scaler = 1.0 / this.getSumBins();
+        for (let i = 0; i < this.getNumBins(); i++) {
+            this.bins[i] *= scaler;
+        }
+    }
+}
+
+class PeakNormalizedDistribution extends NormalizedDistribution {
+    constructor(numBins, peakBin) {
+        super(numBins);
+        this.peakBin = peakBin;
+        this.normalizeBins();
+    }
+
+    // override internal
+    calculateBin(binIndex) {
+        if (binIndex == 0) return 0.0;
+        let w = binIndex / this.peakBin;
+        return w / binIndex * Math.exp(w);
+    }
+}
+
 class VirusModel {
     constructor() {
         this.parameters = [];
@@ -734,6 +795,13 @@ class VirusModel {
 
         this.peakContagiousDayModel = new ParameterFloatModel("peakContagiousDay", "pcd", 2.0, 14.0, 4.0);
         this.parameters.push(this.peakContagiousDayModel);
+        this.peakContagiousDayModel.virus = this;
+        this.peakDayListener = new ParameterModelListener();
+        this.peakDayListener.onChange = function(model) {
+            model.virus.updateContagiousDayDistribution(model.getValue());
+        }
+        this.peakContagiousDayModel.addListener(this.peakDayListener);
+        this.updateContagiousDayDistribution(this.peakContagiousDayModel.getValue());
 
         this.contagiousnessModel = new ParameterFloatModel("contagiousness", "ctg", 0.01, 1.00, 0.20);
         this.parameters.push(this.contagiousnessModel);
@@ -754,21 +822,25 @@ class VirusModel {
         this.parameters.push(this.immunityLossModel);
     }
 
-    getParameterModels() {
-        return this.parameters;
+    updateContagiousDayDistribution(peakDay) {
+        let duration = Math.trunc(peakDay * kInfectionDurationFactor);
+        this.contagiousDayDistribution = new PeakNormalizedDistribution(duration, peakDay);
+    }
+
+    getInfectionDuration() {
+        return this.contagiousDayDistribution.getNumBins();
     }
 
     /**
      * Calculate probability of infecting one contacted person.
      */
     getTransmissionProbability(day) {
-        let peakDay = this.peakContagiousDayModel.getValue();
         let contagiousness = this.contagiousnessModel.getValue();
-        let dayFactor = day / peakDay;
-        let numerator = contagiousness * dayFactor;
-        let denominator = peakDay * Math.exp(dayFactor);
-        let probability = numerator / denominator;
-        return Math.min(1.0, probability);
+        return contagiousness * this.contagiousDayDistribution.getProbability(day);
+    }
+
+    getParameterModels() {
+        return this.parameters;
     }
 
     getInfectionMortalityTreated() {
@@ -791,10 +863,6 @@ class VirusModel {
         return this.immunityLossModel.getValue();
     }
 
-    getInfectionDuration() {
-        let peakDay = this.peakContagiousDayModel.getValue();
-        return peakDay * 6;
-    }
 }
 
 class CompartmentModel {
@@ -1232,7 +1300,7 @@ class EpidemicModel {
         this.initialPopulation = kInitialPopulation;
         this.virus = new VirusModel();
         this.parameters = [];
-        this.ditherScaler = 1.0; // set to 0.0 when testing
+        this.ditherScaler = 1.0; // set to 0.0 when testing, 1.0 when running
 
         this.contactsPerDayModel = new ParameterFloatModel("contactsPerDay", "cpd", 0.1, 30.0, 15.0);
         this.parameters.push(this.contactsPerDayModel);
@@ -1387,12 +1455,14 @@ class EpidemicModel {
                 this.treatmentCapacityPer100KModel.getValue());
         const immunityLoss = this.virus.getImmunityLoss();
 
+        // Use a FIFO to keep track of how many are infected and for how long.
         let infectedFIFO = [];
         for(let i = 0; i < infectionDuration; i++) {
             infectedFIFO.push(0);
         }
         infectedFIFO.unshift(compartment.getInfected());
 
+        // Use a FIFO to keep track of how many are treated and for how long.
         let treatmentFIFO = [];
         for(let i = 0; i < treatmentDuration; i++) {
             treatmentFIFO.push(0);
@@ -1422,12 +1492,11 @@ class EpidemicModel {
                 }
             }
 
-            const endingInfection = infectedFIFO.pop();
-            const endingTreatment = treatmentFIFO.pop();
 
             // Change in infections ========================
             // Convolve the daily transmission probability with
             // the number of infected cases for that day.
+            const endingInfection = infectedFIFO.pop();
             let dailyTransmissionRate = 0;
             for (let infectedDay = 0; infectedDay < infectedFIFO.length; infectedDay++) {
                 dailyTransmissionRate += this.virus.getTransmissionProbability(infectedDay)
@@ -1442,9 +1511,11 @@ class EpidemicModel {
             beginningInfection = Math.max(0, this.ditherRound(beginningInfection));
             beginningInfection = Math.min(compartment.susceptible, beginningInfection);
 
+            // Effect of treatment =======================
             // TODO Consider patients that die during treatment.
             // How many of those needing treatment and received treatment will die.
             // Avoid dividing by zero.
+            const endingTreatment = treatmentFIFO.pop();
             const denominator = Math.max(0.000001, infectionMortalityUntreated);
             let dieAfterTreatment = this.ditherRound(endingTreatment * infectionMortalityTreated / denominator);
             dieAfterTreatment = Math.min(endingTreatment, dieAfterTreatment);
@@ -1499,11 +1570,11 @@ class EpidemicModel {
                 infectedFifoSum += infectedFIFO[i];
             }
             if (compartment.getInfected() != infectedFifoSum) {
-                alert("ERROR: infectedFifoSum is " + infectedFifoSum
-                        + ", should be " + compartment.getIfected());
+                throw new Error("ERROR: infectedFifoSum is " + infectedFifoSum
+                        + ", should be " + compartment.getInfected());
             }
             if (compartment.getTotal() != this.initialPopulation) {
-                alert("ERROR: total population is " + compartment.getTotal()
+                throw new Error("ERROR: total population is " + compartment.getTotal()
                         + ", should be " + this.initialPopulation);
             }
         }
