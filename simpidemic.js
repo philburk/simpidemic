@@ -12,10 +12,8 @@
 // EpidemicSimulator - top level application class
 
 // TODO log taper
-// TODO parametric transmission probabilities
 // TODO Add demographic model
 // TODO Model mortality(age)
-// TODO Add socialDistancing parameter * density => contactsPerDay
 // TODO model testingCapacityPerDay
 // TODO Calculate confirmed cases vs hidden infected
 // TODO improve treatment model, 2 weeks on vent
@@ -857,6 +855,7 @@ class ESimUI {
         this.addChart();
         this.cursorDay = -1;
         this.updating = false;
+        this.epidemic.addActionModelListener(this);
     }
 
     addChart() {
@@ -1126,9 +1125,7 @@ class ESimUI {
             addButton.actionIndex = i;
             addButton.disabled = true;
             addButton.onclick = function() {
-                let actionModel = this.gui.epidemic.addActionModel(this.gui.cursorDay, this.actionIndex);
-                this.gui.addActionModelEditor(actionModel);
-                this.gui.refresh();
+                this.gui.epidemic.addActionModel(this.gui.cursorDay, this.actionIndex);
             };
             this.addActionButtons.push(addButton);
             this.actionEditorDiv.appendChild(addButton);
@@ -1219,27 +1216,11 @@ class ESimUI {
         return this.canvas;
     }
 
-    applySearchParams(searchParams) {
-        let actionableModels = this.epidemic.actionableModels;
-        for (let i = 0; i < actionableModels.length; i++) {
-            let actionableModel = actionableModels[i];
-            let modelCode = actionableModel.getCode();
-            let dayCode = kActionDayCodePrefix + modelCode;
-            if (searchParams.has(dayCode)) {
-                let valueCode = kActionValueCodePrefix + modelCode;
-                let dayArray = searchParams.getAll(dayCode);
-                let valueArray = searchParams.getAll(valueCode);
-                for (let dayIndex = 0; dayIndex < dayArray.length; dayIndex++) {
-                    let day = parseFloat(dayArray[dayIndex]);
-                    let value = parseFloat(valueArray[dayIndex]);
-                    let actionModel = this.epidemic.addActionModel(day, i);
-                    actionModel.model.setValue(value);
-                    this.addActionModelEditor(actionModel);
-                    this.refresh();
-                }
-            }
-        }
+    onActionModelAdded(actionModel) {
+        this.addActionModelEditor(actionModel);
+        this.refresh();
     }
+
 }
 
 class EpidemicModel {
@@ -1248,6 +1229,7 @@ class EpidemicModel {
         this.initialPopulation = kInitialPopulation;
         this.virus = new VirusModel();
         this.parameters = [];
+        this.ditherScaler = 1.0; // set to 0.0 when testing
 
         this.contactsPerDayModel = new ParameterFloatModel("contactsPerDay", "cpd", 0.1, 30.0, 15.0);
         this.parameters.push(this.contactsPerDayModel);
@@ -1261,6 +1243,12 @@ class EpidemicModel {
 
         this.actionList = new ActionList();
         this.actionableModels = [this.contactsPerDayModel, this.treatmentCapacityPer100KModel];
+
+        this.actionModelListeners = [];
+    }
+
+    addActionModelListener(actionModelListener) {
+        this.actionModelListeners.push(actionModelListener);
     }
 
     addSearchParamsFromModels(searchParams, models) {
@@ -1288,9 +1276,30 @@ class EpidemicModel {
         }
     }
 
+    applySearchParamsForActionableModels(searchParams) {
+        let actionableModels = this.actionableModels;
+        for (let i = 0; i < actionableModels.length; i++) {
+            let actionableModel = actionableModels[i];
+            let modelCode = actionableModel.getCode();
+            let dayCode = kActionDayCodePrefix + modelCode;
+            if (searchParams.has(dayCode)) {
+                let valueCode = kActionValueCodePrefix + modelCode;
+                let dayArray = searchParams.getAll(dayCode);
+                let valueArray = searchParams.getAll(valueCode);
+                for (let dayIndex = 0; dayIndex < dayArray.length; dayIndex++) {
+                    let day = parseFloat(dayArray[dayIndex]);
+                    let value = parseFloat(valueArray[dayIndex]);
+                    let actionModel = this.addActionModel(day, i);
+                    actionModel.model.setValue(value);
+                }
+            }
+        }
+    }
+
     applySearchParams(searchParams) {
         this.applySearchParamsToModels(searchParams, this.getGeneralParameterModels());
         this.applySearchParamsToModels(searchParams, this.getVirusParameterModels());
+        this.applySearchParamsForActionableModels(searchParams);
     }
 
     getGeneralParameterModels() {
@@ -1318,7 +1327,8 @@ class EpidemicModel {
     }
 
     ditherRound(value) {
-        return Math.round(value + this.calculateDitherOffset());
+        return Math.round(value
+            + (this.ditherScaler * this.calculateDitherOffset()));
     }
 
     // Actions ========================
@@ -1335,6 +1345,11 @@ class EpidemicModel {
         let localModel = this.actionableModels[actionIndex].makeCopy();
         let actionModel = new ActionModel(day, localModel);
         this.actionList.addActionModel(actionModel);
+        // Fire listeners.
+        for (let i = 0; i < this.actionModelListeners.length; i++) {
+            let actionableModelListener = this.actionModelListeners[i];
+            actionableModelListener.onActionModelAdded(actionModel);
+        }
         return actionModel;
     }
 
@@ -1496,7 +1511,6 @@ class EpidemicSimulator {
     applySearchParams(searchParams) {
         this.simUI.setUpdating(true);
         this.epidemic.applySearchParams(searchParams);
-        this.simUI.applySearchParams(searchParams);
         this.simUI.setUpdating(false);
     }
 }
