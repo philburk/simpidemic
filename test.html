@@ -33,6 +33,15 @@ class TestSuite {
             this.numPassed++;
         }
     }
+    assertClose(msg, expected, actual, tolerance) {
+
+        if (Math.abs(expected - actual) > tolerance) {
+            this.write("ERROR: " + msg + " - expected " + expected + ", actual = " + actual + "\n");
+            this.numFailed++;
+        } else {
+            this.numPassed++;
+        }
+    }
 
     getReport() {
         return "<pre>"
@@ -65,6 +74,19 @@ class TestSuite {
     }
 }
 
+class TestNormalizedDistribution extends TestSuite {
+    testPeakDistribution() {
+        let distribution = new PeakNormalizedDistribution(15, 3.7);
+        this.assertEqual("numBins()", 15, distribution.getNumBins());
+        this.assertClose("getSumBins()", 1.0, distribution.getSumBins(), 0.000001);
+        let sum = 0.0;
+        for (let i = 0; i < distribution.getNumBins(); i++) {
+            sum += distribution.getProbability(i);
+        }
+        this.assertClose("normalized", 1.0, sum, 0.000001);
+    }
+}
+
 class EpidemicTestSuite extends TestSuite {
 
     checkQuery(query, infected, recovered, inTreatment, dead) {
@@ -80,13 +102,13 @@ class EpidemicTestSuite extends TestSuite {
     }
 
     testSimDefault() {
-        this.checkQuery("", 25, 529943, 0, 37113);
+        this.checkQuery("", 13, 541613, 0, 37666);
     }
 
     testSim1() {
         this.checkQuery(
             "ver=10002&cpd=9.92&tpk=501&nds=365&pcd=4.00&ctg=0.200&mtr=2.0&mut=13.2&dtb=7&tdr=14&iml=0.336",
-            358, 344337, 30, 73523);
+            284, 368798, 45, 72598);
     }
 
     // Lock Down with an action then ease up.
@@ -94,7 +116,7 @@ class EpidemicTestSuite extends TestSuite {
         this.checkQuery(
             "ver=10002&cpd=15.00&tpk=25&nds=1000&pcd=4.00&ctg=0.200&mtr=2.0&mut=4.0&dtb=7&tdr=14&iml=0.200"
             + "&adcpd=17&avcpd=4.13&adcpd=140&avcpd=7.89",
-            10992, 179274, 236, 23742);
+            4892, 187463, 190, 24700);
     }
 
     // Lock Down with an action then ease up, twice. Then increace treatment capacity.
@@ -103,13 +125,16 @@ class EpidemicTestSuite extends TestSuite {
             "ver=10002&cpd=15.00&tpk=25&nds=1000&pcd=4.37&ctg=0.286&mtr=3.8&mut=4.9&dtb=5&tdr=14&iml=0.118"
             + "&adcpd=17&avcpd=3.59&adcpd=140&avcpd=7.38&adcpd=180&avcpd=2.91"
             + "&adcpd=303&avcpd=6.38&adtpk=381&avtpk=475",
-            56, 353228, 0, 29136);
+            14, 366708, 0, 29835);
     }
 }
 
-let suite = new EpidemicTestSuite();
 let topDiv = document.getElementById("simpidemic");
-topDiv.innerHTML = suite.execute();
+let epidemicSuite = new EpidemicTestSuite();
+let normalizedSuite = new TestNormalizedDistribution();
+let report = normalizedSuite.execute();
+report += epidemicSuite.execute();
+topDiv.innerHTML = report;
 
 </script>
 
