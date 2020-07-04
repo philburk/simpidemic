@@ -51,6 +51,7 @@ class TestSuite {
         return [...properties.keys()].filter(item => typeof this[item] === 'function');
     }
 
+    // Execute every method that starts with "test".
     execute() {
         let methods = this.getMethodNames();
         for (let i = 0; i < methods.length; i++) {

@@ -1028,17 +1028,25 @@ class ESimUI {
         let deleteButton = document.createElement("input");
         deleteButton.setAttribute("type", "button");
         deleteButton.value = "X";
-        deleteButton.gui = this;
+        deleteButton.epidemic = this.epidemic;
         deleteButton.actionModel = actionModel;
         deleteButton.onclick = function() {
-            let index = this.gui.findActionRow(this.actionModel);
-            if (index >= 0) {
-                this.gui.actionTable.deleteRow(index);
-            }
-            this.gui.epidemic.removeActionModel(this.actionModel);
-            this.gui.refresh();
+            this.epidemic.removeActionModel(this.actionModel);
         };
         cell.appendChild(deleteButton);
+    }
+
+    onActionModelAdded(actionModel) {
+        this.addActionModelEditor(actionModel);
+        this.refreshIfUpdating();
+    }
+
+    onActionModelRemoved(actionModel) {
+        let index = this.findActionRow(actionModel);
+        if (index >= 0) {
+            this.actionTable.deleteRow(index);
+        }
+        this.refreshIfUpdating();
     }
 
     setActionDay(day) {
@@ -1216,11 +1224,6 @@ class ESimUI {
         return this.canvas;
     }
 
-    onActionModelAdded(actionModel) {
-        this.addActionModelEditor(actionModel);
-        this.refresh();
-    }
-
 }
 
 class EpidemicModel {
@@ -1247,6 +1250,9 @@ class EpidemicModel {
         this.actionModelListeners = [];
     }
 
+    // An actionModelListener must implement:
+    //    onActionModelAdded(actionModel)
+    //    onActionModelRemoved(actionModel)
     addActionModelListener(actionModelListener) {
         this.actionModelListeners.push(actionModelListener);
     }
@@ -1355,6 +1361,11 @@ class EpidemicModel {
 
     removeActionModel(actionModel) {
         this.actionList.removeActionModel(actionModel);
+        // Fire listeners.
+        for (let i = 0; i < this.actionModelListeners.length; i++) {
+            let actionableModelListener = this.actionModelListeners[i];
+            actionableModelListener.onActionModelRemoved(actionModel);
+        }
     }
 
     calculateTreatmentCapacity(capacityPer100K) {
