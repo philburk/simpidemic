@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<body>
+<script src="header.js"></script>
+
+<h1>Test Epidemic Simulator</h1>
+
+<script src="simpidemic.js">
+</script>
+
+<div id="simpidemic">
+</div>
+
+<script>
+
+class TestSuite {
+    constructor() {
+        this.numPassed = 0;
+        this.numFailed = 0;
+        this.report = "";
+    }
+
+    // Add text to the report.
+    write(text) {
+        this.report += text
+    }
+
+    assertEqual(msg, expected, actual) {
+        if (expected != actual) {
+            this.write("ERROR: " + msg + " - expected " + expected + ", actual = " + actual + "\n");
+            this.numFailed++;
+        } else {
+            this.numPassed++;
+        }
+    }
+
+    getReport() {
+        return "<pre>"
+                + this.report
+                + "passed = " + this.numPassed
+                + ", failed = " + this.numFailed + "\n"
+                + "</pre>";
+    }
+
+    getMethodNames() {
+        let properties = new Set();
+        let currentObj = this;
+        do {
+            Object.getOwnPropertyNames(currentObj).map(item => properties.add(item));
+        } while ((currentObj = Object.getPrototypeOf(currentObj)));
+        return [...properties.keys()].filter(item => typeof this[item] === 'function');
+    }
+
+    // Execute every method that starts with "test".
+    execute() {
+        let methods = this.getMethodNames();
+        for (let i = 0; i < methods.length; i++) {
+            let method = methods[i];
+            if (method.startsWith("test")) {
+                this.write("==== TEST: " + method + "()\n");
+                this[method].call(this);
+            }
+        }
+        return this.getReport();
+    }
+}
+
+class EpidemicTestSuite extends TestSuite {
+
+    checkQuery(query, infected, recovered, inTreatment, dead) {
+        let epidemic = new EpidemicModel();
+        epidemic.ditherScaler = 0.0; // for deterministic results
+        let params = new URLSearchParams(query);
+        epidemic.applySearchParams(params);
+        let results = epidemic.simulate();
+        this.assertEqual("infected", infected, results.infectedArray[results.numDays - 1]);
+        this.assertEqual("recovered", recovered, results.recoveredArray[results.numDays - 1]);
+        this.assertEqual("inTreatment", inTreatment, results.inTreatmentArray[results.numDays - 1]);
+        this.assertEqual("dead", dead, results.deadArray[results.numDays - 1]);
+    }
+
+    testSimDefault() {
+        this.checkQuery("", 25, 529943, 0, 37113);
+    }
+
+    testSim1() {
+        this.checkQuery(
+            "ver=10002&cpd=9.92&tpk=501&nds=365&pcd=4.00&ctg=0.200&mtr=2.0&mut=13.2&dtb=7&tdr=14&iml=0.336",
+            358, 344337, 30, 73523);
+    }
+
+    // Lock Down with an action then ease up.
+    testSimLockDownUp() {
+        this.checkQuery(
+            "ver=10002&cpd=15.00&tpk=25&nds=1000&pcd=4.00&ctg=0.200&mtr=2.0&mut=4.0&dtb=7&tdr=14&iml=0.200"
+            + "&adcpd=17&avcpd=4.13&adcpd=140&avcpd=7.89",
+            10992, 179274, 236, 23742);
+    }
+
+    // Lock Down with an action then ease up, twice. Then increace treatment capacity.
+    testSimLockDownUpDownUp() {
+        this.checkQuery(
+            "ver=10002&cpd=15.00&tpk=25&nds=1000&pcd=4.37&ctg=0.286&mtr=3.8&mut=4.9&dtb=5&tdr=14&iml=0.118"
+            + "&adcpd=17&avcpd=3.59&adcpd=140&avcpd=7.38&adcpd=180&avcpd=2.91"
+            + "&adcpd=303&avcpd=6.38&adtpk=381&avtpk=475",
+            56, 353228, 0, 29136);
+    }
+}
+
+let suite = new EpidemicTestSuite();
+let topDiv = document.getElementById("simpidemic");
+topDiv.innerHTML = suite.execute();
+
+</script>
+
+</body>
+</html>
