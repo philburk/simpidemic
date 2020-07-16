@@ -1492,24 +1492,27 @@ class EpidemicModel {
                 }
             }
 
+            // State transition counts are named as n{Source}To{Destination}
+            // For example, "nSusceptibleToInfected" is the number of people
+            // transitioning from Susceptible to Infected staes.
 
             // Change in infections ========================
             // Convolve the daily transmission probability with
             // the number of infected cases for that day.
-            const endingInfection = infectedFIFO.pop();
+            const nInfectedToRecovered = infectedFIFO.pop();
             let dailyTransmissionRate = 0;
             for (let infectedDay = 0; infectedDay < infectedFIFO.length; infectedDay++) {
                 dailyTransmissionRate += this.virus.getTransmissionProbability(infectedDay)
                         * infectedFIFO[infectedDay];
             }
-            // beginningInfection is equivalent to the term bs(t)I in the SIR model.
-            let beginningInfection =
+            // nSusceptibleToInfected is equivalent to the term bs(t)I in the SIR model.
+            let nSusceptibleToInfected =
                     contactsPerDay
                     * dailyTransmissionRate
                     * compartment.susceptible
                     / compartment.getTotal();
-            beginningInfection = Math.max(0, this.ditherRound(beginningInfection));
-            beginningInfection = Math.min(compartment.susceptible, beginningInfection);
+            nSusceptibleToInfected = Math.max(0, this.ditherRound(nSusceptibleToInfected));
+            nSusceptibleToInfected = Math.min(compartment.susceptible, nSusceptibleToInfected);
 
             // Effect of treatment =======================
             // TODO Consider patients that die during treatment.
@@ -1517,44 +1520,47 @@ class EpidemicModel {
             // Avoid dividing by zero.
             const endingTreatment = treatmentFIFO.pop();
             const denominator = Math.max(0.000001, infectionMortalityUntreated);
-            let dieAfterTreatment = this.ditherRound(endingTreatment * infectionMortalityTreated / denominator);
-            dieAfterTreatment = Math.min(endingTreatment, dieAfterTreatment);
-            const recoverAfterTreatment = endingTreatment - dieAfterTreatment;
+            let nTreatedToDead = this.ditherRound(endingTreatment * infectionMortalityTreated / denominator);
+            nTreatedToDead = Math.min(endingTreatment, nTreatedToDead);
+            const nTreatedToRecovered = endingTreatment - nTreatedToDead;
 
             // Only treat those who would die if untreated.
             const needingBeginTreatment = this.ditherRound(infectedFIFO[dayTreatmentBegins] * infectionMortalityUntreated / 100);
             const treatmentAvailable = Math.max(0, treatmentCapacity - compartment.inTreatment);
-            const beginningTreatment = Math.min(needingBeginTreatment, treatmentAvailable);
+            const nInfectedToTreated = Math.min(needingBeginTreatment, treatmentAvailable);
             // Remove treated from infected FIFO so we do not double count them.
             infectedFIFO[dayTreatmentBegins] -= needingBeginTreatment;
 
             // How many will die immediately because of no treatment.
-            const dieForLackOfTreatment = needingBeginTreatment - beginningTreatment;
+            const nInfectedToDead = needingBeginTreatment - nInfectedToTreated;
 
             // Some recovered people will lose immunity.
-            let recoveredThatLoseImmunity = immunityLoss * compartment.recovered / 100;
-            recoveredThatLoseImmunity = this.ditherRound(recoveredThatLoseImmunity);
+            let nRecoveredToSusceptible = immunityLoss * compartment.recovered / 100;
+            nRecoveredToSusceptible = this.ditherRound(nRecoveredToSusceptible);
 
-            compartment.susceptible += recoveredThatLoseImmunity - beginningInfection;
-            compartment.recovered += endingInfection
-                    + recoverAfterTreatment
-                    - recoveredThatLoseImmunity;
-            compartment.infected += beginningInfection - (endingInfection + needingBeginTreatment);
-            compartment.inTreatment += beginningTreatment - endingTreatment;
-            compartment.dead += dieAfterTreatment + dieForLackOfTreatment;
+            // Update compartment with state transition values.
+            compartment.susceptible += nRecoveredToSusceptible - nSusceptibleToInfected;
+            compartment.recovered += nInfectedToRecovered
+                    + nTreatedToRecovered
+                    - nRecoveredToSusceptible;
+            compartment.infected += nSusceptibleToInfected
+                    - (nInfectedToRecovered + nInfectedToTreated + nInfectedToDead);
+            compartment.inTreatment += nInfectedToTreated
+                    - (nTreatedToRecovered + nTreatedToDead);
+            compartment.dead += nTreatedToDead + nInfectedToDead;
 
-            infectedFIFO.unshift(beginningInfection);
-            treatmentFIFO.unshift(beginningTreatment);
+            infectedFIFO.unshift(nSusceptibleToInfected);
+            treatmentFIFO.unshift(nInfectedToTreated);
 
             // console.log("day = " + day
             //     + ", susceptible = " + compartment.susceptible
             //     + ", infected = " + compartment.infected
-            //     + " (" + beginningInfection + ")"
+            //     + " (" + nSusceptibleToInfected + ")"
             //     + ", recovered = " + compartment.recovered
             //     + ", inTreatment = " + compartment.inTreatment
-            //     + ", dieAfterTreatment = " + dieAfterTreatment
+            //     + ", nTreatedToDead = " + nTreatedToDead
             //     + ", dead = " + compartment.dead
-            //     + " (" + (dieAfterTreatment + dieForLackOfTreatment) + ")"
+            //     + " (" + (nTreatedToDead + nInfectedToDead) + ")"
             //     + ", living = " + compartment.getLiving()
             // );
 
