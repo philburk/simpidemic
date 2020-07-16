@@ -67,7 +67,12 @@ class TestSuite {
             let method = methods[i];
             if (method.startsWith("test")) {
                 this.write("==== TEST: " + method + "()\n");
-                this[method].call(this);
+                try {
+                    this[method].call(this);
+                } catch(err) {
+                    this.write("EXCEPTION: caught " + err.message + "\n");
+                    this.numFailed++;
+                }
             }
         }
         return this.getReport();
