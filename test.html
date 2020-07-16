@@ -44,11 +44,9 @@ class TestSuite {
     }
 
     getReport() {
-        return "<pre>"
-                + this.report
+        return this.report
                 + "passed = " + this.numPassed
-                + ", failed = " + this.numFailed + "\n"
-                + "</pre>";
+                + ", failed = " + this.numFailed + "\n";
     }
 
     getMethodNames() {
@@ -137,8 +135,13 @@ class EpidemicTestSuite extends TestSuite {
 let topDiv = document.getElementById("simpidemic");
 let epidemicSuite = new EpidemicTestSuite();
 let normalizedSuite = new TestNormalizedDistribution();
-let report = normalizedSuite.execute();
+let report = "<pre>"
+report += "Simpedemic Unit Tests\n";
+report += (new Date()) + "\n\n";
+report += normalizedSuite.execute();
 report += epidemicSuite.execute();
+report += "</pre>";
+
 topDiv.innerHTML = report;
 
 </script>
