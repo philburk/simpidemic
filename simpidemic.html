@@ -14,10 +14,14 @@
 </div>
 
 <script>
-let topDiv = document.getElementById("simpidemic");
-let episim = new EpidemicSimulator(topDiv);
-let params = new URLSearchParams(window.location.search);
-episim.applySearchParams(params);
+try {
+    let topDiv = document.getElementById("simpidemic");
+    let episim = new EpidemicSimulator(topDiv);
+    let params = new URLSearchParams(window.location.search);
+    episim.applySearchParams(params);
+} catch(err) {
+    alert("Caught " + err.message);
+}
 </script>
 
 </body>
