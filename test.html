@@ -68,7 +68,7 @@ class TestSuite {
                 try {
                     this[method].call(this);
                 } catch(err) {
-                    this.write("EXCEPTION: caught " + err.message + "\n");
+                    this.write("EXCEPTION: caught " + err.stack + "\n");
                     this.numFailed++;
                 }
             }

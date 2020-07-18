@@ -1440,20 +1440,49 @@ class EpidemicModel {
         return Math.round(capacityPer100K * this.initialPopulation / 100000);
     }
 
+    calculateTreatmentResult(treatmentFIFO) {
+        // Effect of treatment =======================
+        // TODO Consider patients that die during treatment.
+        // How many of those needing treatment and received treatment will die.
+        // Avoid dividing by zero.
+        const infectionMortalityTreated = this.virus.getInfectionMortalityTreated();
+        const infectionMortalityUntreated = this.virus.getInfectionMortalityUntreated();
+        const endingTreatment = treatmentFIFO.pop();
+        const denominator = Math.max(0.000001, infectionMortalityUntreated);
+        let nTreatedToDead = this.ditherRound(endingTreatment * infectionMortalityTreated / denominator);
+        nTreatedToDead = Math.min(endingTreatment, nTreatedToDead);
+        const nTreatedToRecovered = endingTreatment - nTreatedToDead;
+        return {recovered: nTreatedToRecovered, dead: nTreatedToDead};
+    }
+
+    calculateMortality(infectedFIFO, treatmentFIFO, treatmentAvailable) {
+        // Get values from models.
+        const dayTreatmentBegins = this.virus.getDayTreatmentBegins();
+        const infectionMortalityUntreated = this.virus.getInfectionMortalityUntreated();
+
+        // Only treat those who would die if untreated.
+        const needingBeginTreatment = this.ditherRound(infectedFIFO[dayTreatmentBegins] * infectionMortalityUntreated / 100);
+        const nInfectedToTreated = Math.min(needingBeginTreatment, treatmentAvailable);
+        // Remove treated from infected FIFO so we do not double count them.
+        infectedFIFO[dayTreatmentBegins] -= needingBeginTreatment;
+        // How many will die immediately because of no treatment.
+        const nInfectedToDead = needingBeginTreatment - nInfectedToTreated;
+        return {treated: nInfectedToTreated, dead: nInfectedToDead};
+    }
+
     simulate() {
         var compartment = new CompartmentModel(this.initialPopulation, kInitiallyInfected);
         var results = new SimulationResults();
         // Get initial parameters from models.
         const numDays = this.numDaysModel.getValue();
         const infectionDuration = this.virus.getInfectionDuration();
-        let contactsPerDay = this.contactsPerDayModel.getValue();
-        const infectionMortalityTreated = this.virus.getInfectionMortalityTreated();
-        const infectionMortalityUntreated = this.virus.getInfectionMortalityUntreated();
-        const dayTreatmentBegins = this.virus.getDayTreatmentBegins();
         const treatmentDuration = this.virus.getTreatmentDuration();
+        const immunityLoss = this.virus.getImmunityLoss();
+        
+        // These may be modified by Actions.
+        let contactsPerDay = this.contactsPerDayModel.getValue();
         let treatmentCapacity = this.calculateTreatmentCapacity(
                 this.treatmentCapacityPer100KModel.getValue());
-        const immunityLoss = this.virus.getImmunityLoss();
 
         // Use a FIFO to keep track of how many are infected and for how long.
         let infectedFIFO = [];
@@ -1505,6 +1534,7 @@ class EpidemicModel {
                 dailyTransmissionRate += this.virus.getTransmissionProbability(infectedDay)
                         * infectedFIFO[infectedDay];
             }
+
             // nSusceptibleToInfected is equivalent to the term bs(t)I in the SIR model.
             let nSusceptibleToInfected =
                     contactsPerDay
@@ -1514,25 +1544,18 @@ class EpidemicModel {
             nSusceptibleToInfected = Math.max(0, this.ditherRound(nSusceptibleToInfected));
             nSusceptibleToInfected = Math.min(compartment.susceptible, nSusceptibleToInfected);
 
-            // Effect of treatment =======================
-            // TODO Consider patients that die during treatment.
-            // How many of those needing treatment and received treatment will die.
-            // Avoid dividing by zero.
-            const endingTreatment = treatmentFIFO.pop();
-            const denominator = Math.max(0.000001, infectionMortalityUntreated);
-            let nTreatedToDead = this.ditherRound(endingTreatment * infectionMortalityTreated / denominator);
-            nTreatedToDead = Math.min(endingTreatment, nTreatedToDead);
-            const nTreatedToRecovered = endingTreatment - nTreatedToDead;
+            // TREATED to RECOVERED, DEAD
+            const treatmentResult = this.calculateTreatmentResult(treatmentFIFO);
+            const nTreatedToRecovered = treatmentResult.recovered;
+            const nTreatedToDead = treatmentResult.dead;
 
-            // Only treat those who would die if untreated.
-            const needingBeginTreatment = this.ditherRound(infectedFIFO[dayTreatmentBegins] * infectionMortalityUntreated / 100);
+            // INFECTED to TREATED, DEAD
             const treatmentAvailable = Math.max(0, treatmentCapacity - compartment.inTreatment);
-            const nInfectedToTreated = Math.min(needingBeginTreatment, treatmentAvailable);
-            // Remove treated from infected FIFO so we do not double count them.
-            infectedFIFO[dayTreatmentBegins] -= needingBeginTreatment;
-
-            // How many will die immediately because of no treatment.
-            const nInfectedToDead = needingBeginTreatment - nInfectedToTreated;
+            const mortalityResult = this.calculateMortality(infectedFIFO,
+                    treatmentFIFO,
+                    treatmentAvailable);
+            const nInfectedToTreated = mortalityResult.treated;
+            const nInfectedToDead = mortalityResult.dead;
 
             // Some recovered people will lose immunity.
             let nRecoveredToSusceptible = immunityLoss * compartment.recovered / 100;
@@ -1564,6 +1587,7 @@ class EpidemicModel {
             //     + ", living = " + compartment.getLiving()
             // );
 
+            // Save results for charting.
             results.infectedArray.push(compartment.infected);
             results.susceptibleArray.push(compartment.susceptible);
             results.recoveredArray.push(compartment.recovered);
