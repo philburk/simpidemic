@@ -20,7 +20,7 @@ try {
     let params = new URLSearchParams(window.location.search);
     episim.applySearchParams(params);
 } catch(err) {
-    alert("Caught " + err.message);
+    alert("Caught " + err.stack);
 }
 </script>
 
