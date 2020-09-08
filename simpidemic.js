@@ -812,8 +812,15 @@ class VirusModel {
         this.infectionMortalityUntreatedModel = new ParameterFloatModel("mortalityUntreated", "mut", 0.0, 100.0, 4.0);
         this.parameters.push(this.infectionMortalityUntreatedModel);
 
-        this.dayTreatmentBeginsModel = new ParameterIntegerModel("dayTreatmentBegins", "dtb", 0, 21, 7);
-        this.parameters.push(this.dayTreatmentBeginsModel);
+        this.peakMortalityDayModel = new ParameterFloatModel("peakMortalityDay", "pcd", 2, 21, 7);
+        this.parameters.push(this.peakMortalityDayModel);
+        this.peakMortalityDayModel.virus = this;
+        this.peakMortalityDayListener = new ParameterModelListener();
+        this.peakMortalityDayListener.onChange = function(model) {
+            model.virus.updateMortalityDayDistribution(model.getValue());
+        }
+        this.peakMortalityDayModel.addListener(this.peakMortalityDayListener);
+        this.updateMortalityDayDistribution(this.peakMortalityDayModel.getValue());
 
         this.treatmentDurationModel = new ParameterIntegerModel("treatmentDuration", "tdr", 0, 40, 14);
         this.parameters.push(this.treatmentDurationModel);
@@ -827,8 +834,17 @@ class VirusModel {
         this.contagiousDayDistribution = new PeakNormalizedDistribution(duration, peakDay);
     }
 
-    getInfectionDuration() {
+    updateMortalityDayDistribution(peakDay) {
+        let duration = Math.trunc(peakDay * kInfectionDurationFactor);
+        this.mortalityUntreatedDayDistribution = new PeakNormalizedDistribution(duration, peakDay);
+    }
+
+    getContagiousDuration() {
         return this.contagiousDayDistribution.getNumBins();
+    }
+
+    getMortalityDuration() {
+        return this.mortalityUntreatedDayDistribution.getNumBins();
     }
 
     /**
@@ -837,6 +853,11 @@ class VirusModel {
     getTransmissionProbability(day) {
         let contagiousness = this.contagiousnessModel.getValue();
         return contagiousness * this.contagiousDayDistribution.getProbability(day);
+    }
+
+    getUntreatedDeathProbability(day) {
+        let overallDeathProbability = this.getInfectionMortalityUntreated() / 100.0;
+        return overallDeathProbability * this.mortalityUntreatedDayDistribution.getProbability(day);
     }
 
     getParameterModels() {
@@ -851,8 +872,8 @@ class VirusModel {
         return this.infectionMortalityUntreatedModel.getValue();
     }
 
-    getDayTreatmentBegins(day) {
-        return this.dayTreatmentBeginsModel.getValue(day);
+    getPeakMortalityDay(day) {
+        return this.peakMortalityDayModel.getValue(day);
     }
 
     getTreatmentDuration(day) {
@@ -1405,6 +1426,11 @@ class EpidemicModel {
             + (this.ditherScaler * this.calculateDitherOffset()));
     }
 
+    ditherClip(value, vMin, vMax) {
+        value = Math.max(vMin, this.ditherRound(value));
+        return Math.min(vMax, value);
+    }
+
     // Actions ========================
     getActionNames() {
         let names = [];
@@ -1443,7 +1469,7 @@ class EpidemicModel {
     calculateTreatmentResult(treatmentFIFO) {
         // Effect of treatment =======================
         // TODO Consider patients that die during treatment.
-        // How many of those needing treatment and received treatment will die.
+        // How many of those that needed treatment and received it will die?
         // Avoid dividing by zero.
         const infectionMortalityTreated = this.virus.getInfectionMortalityTreated();
         const infectionMortalityUntreated = this.virus.getInfectionMortalityUntreated();
@@ -1457,14 +1483,22 @@ class EpidemicModel {
 
     calculateMortality(infectedFIFO, treatmentFIFO, treatmentAvailable) {
         // Get values from models.
-        const dayTreatmentBegins = this.virus.getDayTreatmentBegins();
-        const infectionMortalityUntreated = this.virus.getInfectionMortalityUntreated();
+        const peakMortalityDay = this.virus.getPeakMortalityDay();
 
         // Only treat those who would die if untreated.
-        const needingBeginTreatment = this.ditherRound(infectedFIFO[dayTreatmentBegins] * infectionMortalityUntreated / 100);
+        let needingBeginTreatment = 0;
+        const mortalityDuration = this.virus.getMortalityDuration();
+        for (let infectedDay = 0; infectedDay < mortalityDuration; infectedDay++) {
+            const numInfected = infectedFIFO[infectedDay];
+            let dieIfUntreated = this.virus.getUntreatedDeathProbability(infectedDay)
+                    * numInfected;
+            dieIfUntreated = this.ditherClip(dieIfUntreated, 0, numInfected);
+            // Remove dead from infectedFIFO.
+            infectedFIFO[infectedDay] -= dieIfUntreated;
+            needingBeginTreatment += dieIfUntreated;
+        }
+
         const nInfectedToTreated = Math.min(needingBeginTreatment, treatmentAvailable);
-        // Remove treated from infected FIFO so we do not double count them.
-        infectedFIFO[dayTreatmentBegins] -= needingBeginTreatment;
         // How many will die immediately because of no treatment.
         const nInfectedToDead = needingBeginTreatment - nInfectedToTreated;
         return {treated: nInfectedToTreated, dead: nInfectedToDead};
@@ -1475,10 +1509,11 @@ class EpidemicModel {
         var results = new SimulationResults();
         // Get initial parameters from models.
         const numDays = this.numDaysModel.getValue();
-        const infectionDuration = this.virus.getInfectionDuration();
+        const contagiousDuration = this.virus.getContagiousDuration();
+        const mortalityDuration = this.virus.getMortalityDuration();
         const treatmentDuration = this.virus.getTreatmentDuration();
         const immunityLoss = this.virus.getImmunityLoss();
-        
+
         // These may be modified by Actions.
         let contactsPerDay = this.contactsPerDayModel.getValue();
         let treatmentCapacity = this.calculateTreatmentCapacity(
@@ -1486,7 +1521,8 @@ class EpidemicModel {
 
         // Use a FIFO to keep track of how many are infected and for how long.
         let infectedFIFO = [];
-        for(let i = 0; i < infectionDuration; i++) {
+        const infectedFifoSize = Math.max(contagiousDuration, mortalityDuration);
+        for (let i = 0; i < infectedFifoSize; i++) {
             infectedFIFO.push(0);
         }
         infectedFIFO.unshift(compartment.getInfected());
@@ -1530,7 +1566,7 @@ class EpidemicModel {
             // the number of infected cases for that day.
             const nInfectedToRecovered = infectedFIFO.pop();
             let dailyTransmissionRate = 0;
-            for (let infectedDay = 0; infectedDay < infectedFIFO.length; infectedDay++) {
+            for (let infectedDay = 0; infectedDay < contagiousDuration; infectedDay++) {
                 dailyTransmissionRate += this.virus.getTransmissionProbability(infectedDay)
                         * infectedFIFO[infectedDay];
             }
@@ -1612,6 +1648,7 @@ class EpidemicModel {
         return results;
     }
 }
+
 
 class EpidemicSimulator {
     constructor(topDiv) {
